@@ -21,6 +21,23 @@
         misc: 'Miscellaneous',
     };
 
+    const SUBCATEGORY_LABELS = {
+        tops: 'Tops',
+        't-shirts': 'T-Shirts',
+        jumpers: 'Jumpers & Knitwear',
+        hoodies: 'Hoodies & Sweatshirts',
+        jackets: 'Jackets & Coats',
+        dresses: 'Dresses',
+        skirts: 'Skirts',
+        trousers: 'Trousers & Jeans',
+        shorts: 'Shorts',
+        activewear: 'Activewear',
+        swimwear: 'Swimwear',
+        underwear: 'Underwear & Loungewear',
+        accessories: 'Accessories',
+        other: 'Other',
+    };
+
     // ==========================================
     //  SUPABASE CONFIGURATION
     // ==========================================
@@ -74,6 +91,15 @@
 
     const sortSelect = document.getElementById('sortSelect');
     const formSubmitBtn = document.getElementById('formSubmitBtn');
+    const subcategoryGroup = document.getElementById('subcategoryGroup');
+    const subcategorySelect = document.getElementById('itemSubcategory');
+    const categorySelect = document.getElementById('itemCategory');
+
+    // Show/hide subcategory when category changes
+    categorySelect.addEventListener('change', () => {
+        subcategoryGroup.style.display = categorySelect.value === 'clothes' ? 'block' : 'none';
+        if (categorySelect.value !== 'clothes') subcategorySelect.value = '';
+    });
 
     // --- Supabase Data Sync ---
     async function loadItems() {
@@ -452,23 +478,79 @@
             emptyState.style.display = 'none';
             grid.style.display = 'grid';
 
-            filtered.forEach((item, i) => {
-                const card = document.createElement('div');
-                card.className = 'wish-card';
-                card.style.animationDelay = `${i * 0.04}s`;
+            // If viewing Clothes category, group by subcategory
+            const shouldGroup = activeCategory === 'clothes';
 
-                const priceHtml = item.price
-                    ? `<div class="wish-card-price">${escapeHtml(item.price)}</div>`
-                    : '';
-                const noteHtml = item.note
-                    ? `<div class="wish-card-note">${escapeHtml(item.note)}</div>`
-                    : '';
-                const imageHtml = item.image
-                    ? `<img class="wish-card-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" onerror="this.parentElement.classList.add('no-image'); this.remove();">`
-                    : '';
-                const placeholderIcon = getPlaceholderIcon(item.category);
+            if (shouldGroup) {
+                // Group items by subcategory
+                const groups = {};
+                const ungrouped = [];
+                filtered.forEach(item => {
+                    const sub = item.subcategory || '';
+                    if (sub) {
+                        if (!groups[sub]) groups[sub] = [];
+                        groups[sub].push(item);
+                    } else {
+                        ungrouped.push(item);
+                    }
+                });
 
-                card.innerHTML = `
+                // Render order: sorted subcategory keys, then ungrouped
+                const orderedKeys = Object.keys(SUBCATEGORY_LABELS).filter(k => groups[k]);
+                // Add any keys not in SUBCATEGORY_LABELS
+                Object.keys(groups).forEach(k => { if (!orderedKeys.includes(k)) orderedKeys.push(k); });
+
+                let globalIndex = 0;
+                orderedKeys.forEach(key => {
+                    const header = document.createElement('div');
+                    header.className = 'subcategory-header';
+                    header.textContent = SUBCATEGORY_LABELS[key] || key;
+                    grid.appendChild(header);
+
+                    groups[key].forEach(item => {
+                        grid.appendChild(createCard(item, globalIndex++));
+                    });
+                });
+
+                if (ungrouped.length > 0) {
+                    if (orderedKeys.length > 0) {
+                        const header = document.createElement('div');
+                        header.className = 'subcategory-header';
+                        header.textContent = 'Uncategorised';
+                        grid.appendChild(header);
+                    }
+                    ungrouped.forEach(item => {
+                        grid.appendChild(createCard(item, globalIndex++));
+                    });
+                }
+            } else {
+                filtered.forEach((item, i) => {
+                    grid.appendChild(createCard(item, i));
+                });
+            }
+        }
+    }
+
+    function createCard(item, i) {
+        const card = document.createElement('div');
+        card.className = 'wish-card';
+        card.style.animationDelay = `${i * 0.04}s`;
+
+        const priceHtml = item.price
+            ? `<div class="wish-card-price">${escapeHtml(item.price)}</div>`
+            : '';
+        const noteHtml = item.note
+            ? `<div class="wish-card-note">${escapeHtml(item.note)}</div>`
+            : '';
+        const imageHtml = item.image
+            ? `<img class="wish-card-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" onerror="this.parentElement.classList.add('no-image'); this.remove();">`
+            : '';
+        const placeholderIcon = getPlaceholderIcon(item.category);
+        const subcatHtml = item.subcategory && SUBCATEGORY_LABELS[item.subcategory]
+            ? `<span class="wish-card-subcategory">${SUBCATEGORY_LABELS[item.subcategory]}</span>`
+            : '';
+
+        card.innerHTML = `
           <div class="wish-card-image-container">
             ${imageHtml}
             <div class="wish-card-placeholder">${placeholderIcon}</div>
@@ -479,6 +561,7 @@
                 ${escapeHtml(item.name)}
                 <span class="wish-card-category">${CATEGORY_LABELS[item.category] || item.category}</span>
               </div>
+              ${subcatHtml}
               ${noteHtml}
               ${priceHtml}
               <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="wish-card-url" onclick="event.stopPropagation()">
@@ -492,20 +575,17 @@
           </div>
         `;
 
-                // Click card to open URL
-                card.addEventListener('click', (e) => {
-                    if (
-                        e.target.closest('.btn-delete') ||
-                        e.target.closest('.btn-edit') ||
-                        e.target.closest('.wish-card-url')
-                    )
-                        return;
-                    window.open(item.url, '_blank', 'noopener,noreferrer');
-                });
+        card.addEventListener('click', (e) => {
+            if (
+                e.target.closest('.btn-delete') ||
+                e.target.closest('.btn-edit') ||
+                e.target.closest('.wish-card-url')
+            )
+                return;
+            window.open(item.url, '_blank', 'noopener,noreferrer');
+        });
 
-                grid.appendChild(card);
-            });
-        }
+        return card;
     }
 
     // ==========================================
@@ -546,6 +626,8 @@
         document.body.style.overflow = '';
         itemForm.reset();
         fetchPreview.classList.remove('show');
+        subcategoryGroup.style.display = 'none';
+        subcategorySelect.value = '';
         // Reset edit state
         if (editingItemId) {
             editingItemId = null;
@@ -665,12 +747,13 @@
         const category = document.getElementById('itemCategory').value;
         const price = document.getElementById('itemPrice').value.trim();
         const image = document.getElementById('itemImage').value.trim();
+        const subcategory = category === 'clothes' ? subcategorySelect.value : '';
 
         if (!name || !url) return;
 
         if (editingItemId) {
             // Update existing item
-            await updateItem(editingItemId, { name, url, note, category, price, image });
+            await updateItem(editingItemId, { name, url, note, category, price, image, subcategory });
             editingItemId = null;
             formSubmitBtn.textContent = 'Add Item';
             document.querySelector('.modal-title').textContent = 'Add to Wishlist';
@@ -684,6 +767,7 @@
                 category,
                 price,
                 image,
+                subcategory,
                 createdAt: Date.now(),
             };
             await saveItem(newItem);
@@ -715,6 +799,14 @@
         document.getElementById('itemNote').value = item.note || '';
         document.getElementById('itemCategory').value = item.category || 'misc';
         document.getElementById('itemPrice').value = item.price || '';
+        // Handle subcategory
+        if (item.category === 'clothes') {
+            subcategoryGroup.style.display = 'block';
+            subcategorySelect.value = item.subcategory || '';
+        } else {
+            subcategoryGroup.style.display = 'none';
+            subcategorySelect.value = '';
+        }
         formSubmitBtn.textContent = 'Update Item';
         document.querySelector('.modal-title').textContent = 'Edit Item';
         openModal();
