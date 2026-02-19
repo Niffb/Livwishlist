@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description"
+    content="A minimal, beautifully organized shopping wishlist to save and manage product links across categories.">
+  <title>Livs wishlist</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="header-inner">
+      <h1 class="site-title">Livs wishlist</h1>
+      <p class="site-subtitle">things I love</p>
+    </div>
+    <div class="header-actions">
+      <button id="authBtn" class="btn-auth">Login</button>
+      <div id="userDisplay" class="user-display" style="display: none;">
+        <span id="userEmail"></span>
+        <button id="logoutBtn" class="btn-logout">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Category Navigation -->
+  <nav class="category-nav">
+    <div class="nav-inner">
+      <button class="cat-tab active" data-category="all">All</button>
+      <button class="cat-tab" data-category="clothes">Clothes</button>
+      <button class="cat-tab" data-category="stationery">Stationery</button>
+      <button class="cat-tab" data-category="home">Home</button>
+      <button class="cat-tab" data-category="books">Books</button>
+      <button class="cat-tab" data-category="misc">Miscellaneous</button>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="content">
+    <!-- Empty State -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">✦</div>
+      <p class="empty-text">No items yet</p>
+      <p class="empty-hint">Tap the + button to add your first wish</p>
+    </div>
+
+    <!-- Wishlist Grid -->
+    <div class="wishlist-grid" id="wishlistGrid"></div>
+  </main>
+
+  <!-- Add Item FAB -->
+  <button class="fab" id="addBtn" aria-label="Add item">
+    <span class="fab-icon">+</span>
+  </button>
+
+  <!-- Modal Overlay -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Add to Wishlist</h2>
+        <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+      </div>
+      <form id="itemForm" autocomplete="off">
+        <div class="form-group">
+          <label for="itemUrl">Product Link</label>
+          <div class="url-input-row">
+            <input type="url" id="itemUrl" placeholder="Paste a link and hit Fetch…" required>
+            <button type="button" class="btn-fetch" id="fetchBtn">
+              <span class="fetch-text">Fetch</span>
+              <span class="fetch-spinner" id="fetchSpinner"></span>
+            </button>
+          </div>
+        </div>
+        <!-- Fetch preview -->
+        <div class="fetch-preview" id="fetchPreview">
+          <img class="fetch-preview-img" id="fetchPreviewImg" src="" alt="">
+          <div class="fetch-preview-info">
+            <div class="fetch-preview-title" id="fetchPreviewTitle"></div>
+            <div class="fetch-preview-desc" id="fetchPreviewDesc"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="itemName">Name</label>
+          <input type="text" id="itemName" placeholder="e.g. Linen Shirt" required>
+        </div>
+        <div class="form-group">
+          <label for="itemImage">Image URL <span class="optional">(auto-filled)</span></label>
+          <input type="url" id="itemImage" placeholder="https://...">
+        </div>
+        <div class="form-group">
+          <label for="itemNote">Note <span class="optional">(optional)</span></label>
+          <input type="text" id="itemNote" placeholder="e.g. Size M, in cream">
+        </div>
+        <div class="form-group">
+          <label for="itemCategory">Category</label>
+          <select id="itemCategory" required>
+            <option value="clothes">Clothes</option>
+            <option value="stationery">Stationery</option>
+            <option value="home">Home</option>
+            <option value="books">Books</option>
+            <option value="misc">Miscellaneous</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="itemPrice">Price <span class="optional">(auto-filled)</span></label>
+          <input type="text" id="itemPrice" placeholder="e.g. £29.99">
+        </div>
+        <button type="submit" class="btn-submit">Add Item</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Auth Modal -->
+  <div class="modal-overlay" id="authModalOverlay">
+    <div class="modal auth-modal" id="authModal">
+      <div class="modal-header">
+        <h2 class="modal-title">Login</h2>
+        <button class="modal-close" id="authModalClose" aria-label="Close">&times;</button>
+      </div>
+      <p class="auth-hint">Please enter the admin password to manage the wishlist.</p>
+      <form id="authForm">
+        <div class="form-group">
+          <label for="authPassword">Password</label>
+          <input type="password" id="authPassword" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn-submit" id="authSubmitBtn">Login</button>
+      </form>
+      <div id="authMessage" class="auth-message"></div>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Toast -->
+  <div class="toast" id="toast">
+    <span class="toast-text">Item removed</span>
+    <button class="toast-undo" id="toastUndo">Undo</button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
