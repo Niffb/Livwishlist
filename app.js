@@ -81,13 +81,18 @@
         const { data, error } = await supabase
             .from('wishlist')
             .select('*')
-            .order('createdAt', { ascending: false });
+            .order('created_at', { ascending: false });
 
         if (error) {
             console.error('Error loading items:', error);
             return [];
         }
-        return data;
+
+        // Map snake_case from DB back to camelCase for app logic
+        return data.map(item => ({
+            ...item,
+            createdAt: item.created_at
+        }));
     }
 
     async function saveItem(item) {
@@ -97,9 +102,13 @@
             return;
         }
 
+        // Map camelCase to snake_case for DB
+        const dbItem = { ...item, created_at: item.createdAt };
+        delete dbItem.createdAt;
+
         const { error } = await supabase
             .from('wishlist')
-            .insert([item]);
+            .insert([dbItem]);
 
         if (error) console.error('Error saving item:', error);
     }
@@ -467,7 +476,7 @@
     function openAuthModal() {
         authModalOverlay.classList.add('open');
         document.body.style.overflow = 'hidden';
-        setTimeout(() => authEmailInput.focus(), 350);
+        setTimeout(() => authPasswordInput.focus(), 350);
     }
 
     function closeAuthModal() {
