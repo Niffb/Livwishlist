@@ -8,10 +8,13 @@
     // --- Constants ---
     const STORAGE_KEY = 'wishlist_items';
     const MICROLINK_API = 'https://api.microlink.io';
-    const CATEGORIES = ['clothes', 'jewellery', 'stationery', 'home', 'books', 'misc'];
+    const CATEGORIES = ['clothes', 'jewellery', 'shoes', 'bags', 'cosmetics', 'stationery', 'home', 'books', 'misc'];
     const CATEGORY_LABELS = {
         clothes: 'Clothes',
         jewellery: 'Jewellery',
+        shoes: 'Shoes',
+        bags: 'Bags',
+        cosmetics: 'Cosmetics',
         stationery: 'Stationery',
         home: 'Home',
         books: 'Books',
