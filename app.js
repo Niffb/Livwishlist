@@ -621,13 +621,11 @@
           </div>
           <div class="wish-card-body">
             <div class="wish-card-content">
-              <div class="wish-card-name">
-                ${escapeHtml(item.name)}
-                <span class="wish-card-category">${CATEGORY_LABELS[item.category] || item.category}</span>
-              </div>
+              <div class="wish-card-name">${escapeHtml(item.name)}</div>
+              <span class="wish-card-category">${CATEGORY_LABELS[item.category] || item.category}</span>
               ${subcatHtml}
-              ${noteHtml}
               ${priceHtml}
+              ${noteHtml}
               <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="wish-card-url" onclick="event.stopPropagation()">
                 ${displayUrl(item.url)}
               </a>
