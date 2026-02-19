@@ -278,8 +278,67 @@
     }
 
     // ==========================================
-    //  SMART FETCH — Microlink API
+    //  SMART FETCH — Microlink API + Fallbacks
     // ==========================================
+
+    // Parse product name from URL slug (last resort fallback)
+    function parseNameFromUrl(url) {
+        try {
+            const u = new URL(url);
+            const pathParts = u.pathname.split('/').filter(Boolean);
+            // Find the most descriptive part (longest, non-numeric segment)
+            let best = '';
+            for (const part of pathParts) {
+                // Skip purely numeric parts (IDs)
+                if (/^\d+$/.test(part)) continue;
+                // Skip common path segments
+                if (['uk', 'us', 'listing', 'product', 'products', 'item', 'items', 'shop', 'dp', 'p'].includes(part.toLowerCase())) continue;
+                if (part.length > best.length) best = part;
+            }
+            if (best) {
+                return best
+                    .replace(/[-_]+/g, ' ')
+                    .replace(/\b\w/g, c => c.toUpperCase())
+                    .trim();
+            }
+        } catch (e) { }
+        return '';
+    }
+
+    // Try fetching metadata from Microlink
+    async function fetchFromMicrolink(url) {
+        const response = await fetch(
+            `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true`
+        );
+        const json = await response.json();
+        if (json.status === 'success' && json.data) {
+            return json.data;
+        }
+        return null;
+    }
+
+    // Try fetching metadata from jsonlink.io (free fallback)
+    async function fetchFromJsonLink(url) {
+        try {
+            const response = await fetch(
+                `https://jsonlink.io/api/extract?url=${encodeURIComponent(url)}`
+            );
+            if (!response.ok) return null;
+            const data = await response.json();
+            if (data && (data.title || data.images?.length)) {
+                return {
+                    title: data.title || '',
+                    description: data.description || '',
+                    image: data.images?.[0] ? { url: data.images[0] } : null,
+                    images: data.images || [],
+                    logo: null,
+                    screenshot: null,
+                    price: null,
+                };
+            }
+        } catch (e) { }
+        return null;
+    }
 
     fetchBtn.addEventListener('click', async () => {
         let url = document.getElementById('itemUrl').value.trim();
@@ -288,29 +347,21 @@
             return;
         }
 
-        // Quick cleanup: strip tracking params that might bloat the request
-        try {
-            const u = new URL(url);
-            // Keep essential product ID params if they exist, but generally clean
-            // url = u.origin + u.pathname; 
-            // Actually, keep it for now as some sites need params for product variants.
-        } catch (e) { }
-
         // Start loading
         fetchBtn.classList.add('loading');
         fetchBtn.disabled = true;
         fetchPreview.classList.remove('show');
 
         try {
-            const response = await fetch(
-                `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true`
-            );
-            const json = await response.json();
+            // Strategy 1: Try Microlink
+            let data = await fetchFromMicrolink(url);
 
-            if (json.status === 'success' && json.data) {
-                const data = json.data;
+            // Strategy 2: If Microlink fails, try jsonlink.io
+            if (!data) {
+                data = await fetchFromJsonLink(url);
+            }
 
-                // Auto-fill form fields
+            if (data) {
                 const nameInput = document.getElementById('itemName');
                 const imageInput = document.getElementById('itemImage');
                 const priceInput = document.getElementById('itemPrice');
@@ -396,13 +447,26 @@
                     : (data.description ? data.description.substring(0, 100) + '...' : url);
                 fetchPreview.classList.add('show');
             } else {
-                fetchPreviewTitle.textContent = 'Fetch returned no data';
-                fetchPreviewDesc.textContent = 'The site might be blocking scraping. Please fill in manually.';
+                // Strategy 3: Parse product name from URL slug
+                const parsedName = parseNameFromUrl(url);
+                const nameInput = document.getElementById('itemName');
+                if (parsedName) {
+                    nameInput.value = parsedName;
+                }
+
+                fetchPreviewTitle.textContent = parsedName || 'Could not auto-fetch';
+                fetchPreviewDesc.textContent = 'This site blocks scrapers. Name was extracted from the URL — please verify and fill in the rest manually.';
                 fetchPreviewImg.style.display = 'none';
                 fetchPreview.classList.add('show');
             }
         } catch (err) {
-            fetchPreviewTitle.textContent = 'Fetch failed';
+            // Final fallback on network error
+            const parsedName = parseNameFromUrl(url);
+            const nameInput = document.getElementById('itemName');
+            if (parsedName) {
+                nameInput.value = parsedName;
+            }
+            fetchPreviewTitle.textContent = parsedName || 'Fetch failed';
             fetchPreviewDesc.textContent = 'Please check the link or fill in manually.';
             fetchPreviewImg.style.display = 'none';
             fetchPreview.classList.add('show');
