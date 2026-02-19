@@ -158,12 +158,30 @@
     }
 
     // --- Clean Title Helper ---
-    function cleanTitle(title) {
+    function cleanTitle(title, url) {
         if (!title) return '';
-        // Strip query params and hash
-        let cleaned = title.split('?')[0].split('#')[0].trim();
 
-        // If it's a long hyphenated string (slug) or contains path segments
+        // Strip common suffixes/prefixes like site names
+        let cleaned = title;
+
+        // 1. Remove separators and what follows them if they look like site names
+        // e.g., "Product Name | Site Name" or "Product Name - Brand"
+        const separators = [' | ', ' - ', ' – ', ' — ', ' : '];
+        for (const sep of separators) {
+            if (cleaned.includes(sep)) {
+                const parts = cleaned.split(sep);
+                // If the second part contains common site words or matches domain, take the first part
+                const lastPart = parts[parts.length - 1].toLowerCase();
+                if (lastPart.includes('store') || lastPart.includes('official') || lastPart.includes('website') ||
+                    (url && url.toLowerCase().includes(lastPart.replace(/\s/g, '')))) {
+                    cleaned = parts.slice(0, -1).join(sep);
+                }
+            }
+        }
+
+        cleaned = cleaned.trim();
+
+        // 2. If it's a long hyphenated string (slug) or contains path segments
         if (cleaned.includes('/') || (cleaned.includes('-') && !cleaned.includes(' '))) {
             const segments = cleaned.split('/');
             cleaned = segments[segments.length - 1] || segments[segments.length - 2] || cleaned;
@@ -172,19 +190,21 @@
                 .split('-')
                 .filter((part) => {
                     // Remove purely numeric parts (IDs) and very short segments
-                    return !/^\d+$/.test(part) && part.length > 2;
+                    return !/^\d+$/.test(part) && part.length > 1;
                 })
                 .join(' ');
         }
 
-        // Capitalize words
+        // 3. Capitalize and cleanup
         if (cleaned) {
             cleaned = cleaned
                 .toLowerCase()
                 .split(' ')
                 .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(' ');
+                .join(' ')
+                .trim();
         }
+
         return cleaned;
     }
 
@@ -227,20 +247,27 @@
                 const priceInput = document.getElementById('itemPrice');
 
                 // Clean and Set Name
-                const cleanedTitle = cleanTitle(data.title);
+                const cleanedTitle = cleanTitle(data.title, url);
                 if (cleanedTitle && cleanedTitle.length > 3) {
                     nameInput.value = cleanedTitle;
                 } else if (data.description) {
-                    const descTitle = cleanTitle(data.description.split('.')[0]);
+                    const descTitle = cleanTitle(data.description.split('.')[0], url);
                     if (descTitle && descTitle.length < 80) nameInput.value = descTitle;
                 }
 
-                // Set Image - Ignore favicons
+                // Set Image - Smarter selection
                 let bestImage = '';
-                if (data.image && data.image.url && !data.image.url.toLowerCase().includes('favicon')) {
-                    bestImage = data.image.url;
-                } else if (data.logo && data.logo.url && !data.logo.url.toLowerCase().includes('favicon')) {
-                    bestImage = data.logo.url;
+                const imageCandidates = [
+                    data.image?.url,
+                    data.image,
+                    data.logo?.url,
+                    data.logo,
+                    data.screenshot?.url,
+                    data.screenshot
+                ].filter(img => typeof img === 'string' && img.length > 4 && !img.toLowerCase().includes('favicon'));
+
+                if (imageCandidates.length > 0) {
+                    bestImage = imageCandidates[0];
                 }
 
                 if (bestImage) {
@@ -250,7 +277,7 @@
                 // Set Price - More aggressive detection
                 let detectedPrice = '';
                 if (data.price) {
-                    detectedPrice = data.price;
+                    detectedPrice = typeof data.price === 'number' ? `£${data.price}` : data.price;
                 } else {
                     // Combine all text data to search for currency patterns
                     const searchStr = [
@@ -260,8 +287,8 @@
                         typeof data.text === 'string' ? data.text : ''
                     ].join(' | ');
 
-                    // Specific regex for currency symbols that prioritizes the symbol
-                    const currencyRegex = /(?:£|€|\$|USD|GBP|EUR)\s?[\d,.]+(?:\.\d{2})?|[\d,.]+(?:\.\d{2})?\s?(?:£|€|\$|USD|GBP|EUR)/i;
+                    // Specific regex for currency symbols
+                    const currencyRegex = /(?:£|€|\$|USD|GBP|EUR|¥|CHF|AUD|CAD)\s?[\d,.]+(?:\.\d{2})?|[\d,.]+(?:\.\d{2})?\s?(?:£|€|\$|USD|GBP|EUR|¥|CHF|AUD|CAD)/i;
                     const priceMatch = searchStr.match(currencyRegex);
 
                     if (priceMatch) {
