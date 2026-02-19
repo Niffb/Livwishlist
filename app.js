@@ -300,14 +300,27 @@
 
                 // Set Image - Smarter selection
                 let bestImage = '';
+
+                // Helper to normalize URLs
+                const normalizeUrl = (imgUrl) => {
+                    if (!imgUrl) return null;
+                    if (typeof imgUrl === 'object') imgUrl = imgUrl.url;
+                    if (typeof imgUrl !== 'string') return null;
+                    try {
+                        return new URL(imgUrl, url).href;
+                    } catch (e) {
+                        return imgUrl;
+                    }
+                };
+
                 const imageCandidates = [
-                    data.image?.url,
                     data.image,
-                    data.logo?.url,
+                    ...(Array.isArray(data.images) ? data.images : []),
                     data.logo,
-                    data.screenshot?.url,
                     data.screenshot
-                ].filter(img => typeof img === 'string' && img.length > 4 && !img.toLowerCase().includes('favicon'));
+                ]
+                    .map(normalizeUrl)
+                    .filter(img => img && img.length > 4 && !img.toLowerCase().includes('favicon'));
 
                 if (imageCandidates.length > 0) {
                     bestImage = imageCandidates[0];
@@ -384,6 +397,21 @@
         return isNaN(val) ? Infinity : val;
     }
 
+    function getPlaceholderIcon(category) {
+        const icons = {
+            clothes: '👕',
+            jewellery: '💎',
+            shoes: '👟',
+            bags: '👜',
+            cosmetics: '💄',
+            stationery: '✍️',
+            home: '🏠',
+            books: '📖',
+            misc: '✦'
+        };
+        return icons[category] || '✦';
+    }
+
     function render() {
         let filtered =
             activeCategory === 'all'
@@ -436,11 +464,15 @@
                     ? `<div class="wish-card-note">${escapeHtml(item.note)}</div>`
                     : '';
                 const imageHtml = item.image
-                    ? `<img class="wish-card-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" onerror="this.style.display='none'">`
+                    ? `<img class="wish-card-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" onerror="this.parentElement.classList.add('no-image'); this.remove();">`
                     : '';
+                const placeholderIcon = getPlaceholderIcon(item.category);
 
                 card.innerHTML = `
-          ${imageHtml}
+          <div class="wish-card-image-container">
+            ${imageHtml}
+            <div class="wish-card-placeholder">${placeholderIcon}</div>
+          </div>
           <div class="wish-card-body">
             <div class="wish-card-content">
               <div class="wish-card-name">
