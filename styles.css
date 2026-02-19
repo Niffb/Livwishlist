@@ -338,7 +338,8 @@ body {
   flex-shrink: 0;
 }
 
-.btn-delete {
+.btn-delete,
+.btn-edit {
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -354,7 +355,8 @@ body {
   opacity: 0;
 }
 
-.wish-card:hover .btn-delete {
+.wish-card:hover .btn-delete,
+.wish-card:hover .btn-edit {
   opacity: 1;
 }
 
@@ -364,9 +366,54 @@ body {
   border-color: var(--text);
 }
 
+.btn-edit:hover {
+  background: var(--text);
+  color: var(--accent-text);
+  border-color: var(--text);
+}
+
+/* --- Sort Dropdown --- */
+.sort-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.sort-label {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.sort-select {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+
+.sort-select:hover {
+  border-color: var(--border-hover);
+}
+
+.sort-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* --- Auth/Permission states --- */
 body:not(.is-authenticated) .fab,
-body:not(.is-authenticated) .btn-delete {
+body:not(.is-authenticated) .btn-delete,
+body:not(.is-authenticated) .btn-edit {
   display: none !important;
 }
 

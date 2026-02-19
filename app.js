@@ -8,9 +8,10 @@
     // --- Constants ---
     const STORAGE_KEY = 'wishlist_items';
     const MICROLINK_API = 'https://api.microlink.io';
-    const CATEGORIES = ['clothes', 'stationery', 'home', 'books', 'misc'];
+    const CATEGORIES = ['clothes', 'jewellery', 'stationery', 'home', 'books', 'misc'];
     const CATEGORY_LABELS = {
         clothes: 'Clothes',
+        jewellery: 'Jewellery',
         stationery: 'Stationery',
         home: 'Home',
         books: 'Books',
@@ -62,9 +63,14 @@
     // --- State ---
     let items = [];
     let activeCategory = 'all';
+    let activeSort = 'newest';
     let lastDeleted = null;
     let toastTimeout = null;
     let currentUser = null;
+    let editingItemId = null;
+
+    const sortSelect = document.getElementById('sortSelect');
+    const formSubmitBtn = document.getElementById('formSubmitBtn');
 
     // --- Supabase Data Sync ---
     async function loadItems() {
@@ -130,6 +136,31 @@
             .eq('id', id);
 
         if (error) console.error('Error removing item:', error);
+    }
+
+    async function updateItem(id, updates) {
+        if (!supabase) {
+            const index = items.findIndex(i => i.id === id);
+            if (index > -1) {
+                items[index] = { ...items[index], ...updates };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+            }
+            return;
+        }
+
+        // Map camelCase to snake_case for DB
+        const dbUpdates = { ...updates };
+        if (dbUpdates.createdAt) {
+            dbUpdates.created_at = dbUpdates.createdAt;
+            delete dbUpdates.createdAt;
+        }
+
+        const { error } = await supabase
+            .from('wishlist')
+            .update(dbUpdates)
+            .eq('id', id);
+
+        if (error) console.error('Error updating item:', error);
     }
 
     function subscribeToChanges() {
@@ -343,11 +374,37 @@
     //  RENDER
     // ==========================================
 
+    function parsePrice(priceStr) {
+        if (!priceStr) return Infinity;
+        const cleaned = priceStr.replace(/[^\d.]/g, '');
+        const val = parseFloat(cleaned);
+        return isNaN(val) ? Infinity : val;
+    }
+
     function render() {
-        const filtered =
+        let filtered =
             activeCategory === 'all'
-                ? items
+                ? [...items]
                 : items.filter((item) => item.category === activeCategory);
+
+        // Apply sorting
+        switch (activeSort) {
+            case 'newest':
+                filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                break;
+            case 'oldest':
+                filtered.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+                break;
+            case 'price-low':
+                filtered.sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
+                break;
+            case 'price-high':
+                filtered.sort((a, b) => parsePrice(b.price) - parsePrice(a.price));
+                break;
+            case 'name':
+                filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                break;
+        }
 
         grid.innerHTML = '';
 
@@ -394,6 +451,7 @@
               </a>
             </div>
             <div class="wish-card-actions">
+              <button class="btn-edit" data-id="${item.id}" aria-label="Edit item">✎</button>
               <button class="btn-delete" data-id="${item.id}" aria-label="Delete item">&times;</button>
             </div>
           </div>
@@ -403,6 +461,7 @@
                 card.addEventListener('click', (e) => {
                     if (
                         e.target.closest('.btn-delete') ||
+                        e.target.closest('.btn-edit') ||
                         e.target.closest('.wish-card-url')
                     )
                         return;
@@ -427,6 +486,12 @@
         });
     });
 
+    // Sort listener
+    sortSelect.addEventListener('change', () => {
+        activeSort = sortSelect.value;
+        render();
+    });
+
     // ==========================================
     //  MODAL
     // ==========================================
@@ -446,6 +511,12 @@
         document.body.style.overflow = '';
         itemForm.reset();
         fetchPreview.classList.remove('show');
+        // Reset edit state
+        if (editingItemId) {
+            editingItemId = null;
+            formSubmitBtn.textContent = 'Add Item';
+            document.querySelector('.modal-title').textContent = 'Add to Wishlist';
+        }
     }
 
     addBtn.addEventListener('click', () => {
@@ -562,22 +633,56 @@
 
         if (!name || !url) return;
 
-        const newItem = {
-            id: uid(),
-            name,
-            url,
-            note,
-            category,
-            price,
-            image,
-            createdAt: Date.now(),
-        };
-
-        await saveItem(newItem);
+        if (editingItemId) {
+            // Update existing item
+            await updateItem(editingItemId, { name, url, note, category, price, image });
+            editingItemId = null;
+            formSubmitBtn.textContent = 'Add Item';
+            document.querySelector('.modal-title').textContent = 'Add to Wishlist';
+        } else {
+            // Create new item
+            const newItem = {
+                id: uid(),
+                name,
+                url,
+                note,
+                category,
+                price,
+                image,
+                createdAt: Date.now(),
+            };
+            await saveItem(newItem);
+        }
         if (!supabase) {
             render();
         }
         closeModal();
+    });
+
+    // ==========================================
+    //  EDIT ITEM
+    // ==========================================
+
+    grid.addEventListener('click', (e) => {
+        const editBtn = e.target.closest('.btn-edit');
+        if (!editBtn) return;
+
+        e.stopPropagation();
+        const id = editBtn.dataset.id;
+        const item = items.find(i => i.id === id);
+        if (!item) return;
+
+        // Fill the form with existing data
+        editingItemId = id;
+        document.getElementById('itemUrl').value = item.url || '';
+        document.getElementById('itemName').value = item.name || '';
+        document.getElementById('itemImage').value = item.image || '';
+        document.getElementById('itemNote').value = item.note || '';
+        document.getElementById('itemCategory').value = item.category || 'misc';
+        document.getElementById('itemPrice').value = item.price || '';
+        formSubmitBtn.textContent = 'Update Item';
+        document.querySelector('.modal-title').textContent = 'Edit Item';
+        openModal();
     });
 
     // ==========================================

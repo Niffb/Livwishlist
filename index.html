@@ -38,10 +38,21 @@
     <div class="nav-inner">
       <button class="cat-tab active" data-category="all">All</button>
       <button class="cat-tab" data-category="clothes">Clothes</button>
+      <button class="cat-tab" data-category="jewellery">Jewellery</button>
       <button class="cat-tab" data-category="stationery">Stationery</button>
       <button class="cat-tab" data-category="home">Home</button>
       <button class="cat-tab" data-category="books">Books</button>
       <button class="cat-tab" data-category="misc">Miscellaneous</button>
+      <div class="sort-wrapper">
+        <label for="sortSelect" class="sort-label">Sort:</label>
+        <select id="sortSelect" class="sort-select">
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="price-low">Price: Low → High</option>
+          <option value="price-high">Price: High → Low</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </div>
     </div>
   </nav>
 
@@ -105,6 +116,7 @@
           <label for="itemCategory">Category</label>
           <select id="itemCategory" required>
             <option value="clothes">Clothes</option>
+            <option value="jewellery">Jewellery</option>
             <option value="stationery">Stationery</option>
             <option value="home">Home</option>
             <option value="books">Books</option>
@@ -115,7 +127,7 @@
           <label for="itemPrice">Price <span class="optional">(auto-filled)</span></label>
           <input type="text" id="itemPrice" placeholder="e.g. £29.99">
         </div>
-        <button type="submit" class="btn-submit">Add Item</button>
+        <button type="submit" class="btn-submit" id="formSubmitBtn">Add Item</button>
       </form>
     </div>
   </div>
