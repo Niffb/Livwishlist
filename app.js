@@ -140,6 +140,7 @@
         // Map camelCase to snake_case for DB
         const dbItem = { ...item, created_at: item.createdAt };
         delete dbItem.createdAt;
+        delete dbItem.subcategory; // Not in DB schema yet
 
         const { error } = await supabase
             .from('wishlist')
@@ -183,6 +184,7 @@
             dbUpdates.created_at = dbUpdates.createdAt;
             delete dbUpdates.createdAt;
         }
+        delete dbUpdates.subcategory; // Not in DB schema yet
 
         const { error } = await supabase
             .from('wishlist')
@@ -307,36 +309,17 @@
 
     // Try fetching metadata from Microlink
     async function fetchFromMicrolink(url) {
-        const response = await fetch(
-            `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true`
-        );
-        const json = await response.json();
-        if (json.status === 'success' && json.data) {
-            return json.data;
-        }
-        return null;
-    }
-
-    // Try fetching metadata from jsonlink.io (free fallback)
-    async function fetchFromJsonLink(url) {
         try {
             const response = await fetch(
-                `https://jsonlink.io/api/extract?url=${encodeURIComponent(url)}`
+                `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true`
             );
-            if (!response.ok) return null;
-            const data = await response.json();
-            if (data && (data.title || data.images?.length)) {
-                return {
-                    title: data.title || '',
-                    description: data.description || '',
-                    image: data.images?.[0] ? { url: data.images[0] } : null,
-                    images: data.images || [],
-                    logo: null,
-                    screenshot: null,
-                    price: null,
-                };
+            const json = await response.json();
+            if (json.status === 'success' && json.data) {
+                return json.data;
             }
-        } catch (e) { }
+        } catch (e) {
+            // Silently fail — some sites block Microlink
+        }
         return null;
     }
 
@@ -355,11 +338,6 @@
         try {
             // Strategy 1: Try Microlink
             let data = await fetchFromMicrolink(url);
-
-            // Strategy 2: If Microlink fails, try jsonlink.io
-            if (!data) {
-                data = await fetchFromJsonLink(url);
-            }
 
             if (data) {
                 const nameInput = document.getElementById('itemName');
