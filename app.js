@@ -323,34 +323,6 @@
         return null;
     }
 
-    // Fallback: get a screenshot of the page via Microlink
-    async function fetchScreenshot(url) {
-        try {
-            const response = await fetch(
-                `${MICROLINK_API}?url=${encodeURIComponent(url)}&meta=false&screenshot=true&embed=screenshot.url`
-            );
-            if (response.ok) {
-                // embed=screenshot.url returns the image directly as a redirect URL
-                // But actually let's get the JSON to extract the URL
-                const finalUrl = response.url; // After redirect
-                if (finalUrl && finalUrl.includes('microlink.io')) {
-                    return finalUrl;
-                }
-            }
-        } catch (e) { }
-        // Alternative: construct the screenshot URL directly
-        try {
-            const response = await fetch(
-                `${MICROLINK_API}?url=${encodeURIComponent(url)}&meta=false&screenshot=true`
-            );
-            const json = await response.json();
-            if (json.status === 'success' && json.data?.screenshot?.url) {
-                return json.data.screenshot.url;
-            }
-        } catch (e) { }
-        return null;
-    }
-
     fetchBtn.addEventListener('click', async () => {
         let url = document.getElementById('itemUrl').value.trim();
         if (!url) {
@@ -453,28 +425,16 @@
                     : (data.description ? data.description.substring(0, 100) + '...' : url);
                 fetchPreview.classList.add('show');
             } else {
-                // Strategy 2: Parse name from URL + get screenshot as image
+                // Fallback: extract name from URL slug
                 const parsedName = parseNameFromUrl(url);
                 const nameInput = document.getElementById('itemName');
-                const imageInput = document.getElementById('itemImage');
                 if (parsedName) {
                     nameInput.value = parsedName;
                 }
 
-                // Try to get a screenshot of the page as fallback image
-                const screenshotUrl = await fetchScreenshot(url);
-                if (screenshotUrl) {
-                    imageInput.value = screenshotUrl;
-                    fetchPreviewImg.src = screenshotUrl;
-                    fetchPreviewImg.style.display = 'block';
-                } else {
-                    fetchPreviewImg.style.display = 'none';
-                }
-
                 fetchPreviewTitle.textContent = parsedName || 'Could not auto-fetch';
-                fetchPreviewDesc.textContent = screenshotUrl
-                    ? 'Name extracted from URL and screenshot captured. Please verify details.'
-                    : 'This site blocks scrapers. Name was extracted from the URL — please fill in the rest manually.';
+                fetchPreviewDesc.textContent = 'This site blocks auto-fetch. For the image: right-click the product image → Copy Image Address, then paste it in the Image URL field.';
+                fetchPreviewImg.style.display = 'none';
                 fetchPreview.classList.add('show');
             }
         } catch (err) {
