@@ -23,7 +23,7 @@
     // IMPORTANT: Replace these with your actual Supabase URL and Anon Key
     const SUPABASE_URL = 'YOUR_SUPABASE_URL';
     const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
-    const ADMIN_PASSWORD = 'liv123'; // Change this to your preferred password
+    const ADMIN_PASSWORD = 'Pastore33!'; // Change this to your preferred password
 
     let supabase = null;
     if (SUPABASE_URL !== 'YOUR_SUPABASE_URL') {
