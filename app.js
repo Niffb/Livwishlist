@@ -236,14 +236,15 @@
         let cleaned = title;
 
         // 1. Remove separators and what follows them if they look like site names
-        // e.g., "Product Name | Site Name" or "Product Name - Brand"
         const separators = [' | ', ' - ', ' – ', ' — ', ' : '];
         for (const sep of separators) {
             if (cleaned.includes(sep)) {
                 const parts = cleaned.split(sep);
-                // If the second part contains common site words or matches domain, take the first part
                 const lastPart = parts[parts.length - 1].toLowerCase();
-                if (lastPart.includes('store') || lastPart.includes('official') || lastPart.includes('website') ||
+                // Common generic site words
+                const genericWords = ['store', 'official', 'website', 'online', 'shop', 'amazon', 'etsy', 'ebay', 'asos', 'zara', 'h&m'];
+                
+                if (genericWords.some(word => lastPart.includes(word)) || 
                     (url && url.toLowerCase().includes(lastPart.replace(/\s/g, '')))) {
                     cleaned = parts.slice(0, -1).join(sep);
                 }
@@ -260,7 +261,6 @@
             cleaned = cleaned
                 .split('-')
                 .filter((part) => {
-                    // Remove purely numeric parts (IDs) and very short segments
                     return !/^\d+$/.test(part) && part.length > 1;
                 })
                 .join(' ');
@@ -274,13 +274,16 @@
                 .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
                 .join(' ')
                 .trim();
+            
+            // Limit length
+            if (cleaned.length > 100) cleaned = cleaned.substring(0, 97) + '...';
         }
 
         return cleaned;
     }
 
     // ==========================================
-    //  SMART FETCH — Microlink API + Fallbacks
+    //  SMART FETCH — Enhanced Scraper
     // ==========================================
 
     // Parse product name from URL slug (last resort fallback)
@@ -294,7 +297,7 @@
                 // Skip purely numeric parts (IDs)
                 if (/^\d+$/.test(part)) continue;
                 // Skip common path segments
-                if (['uk', 'us', 'listing', 'product', 'products', 'item', 'items', 'shop', 'dp', 'p'].includes(part.toLowerCase())) continue;
+                if (['uk', 'us', 'listing', 'product', 'products', 'item', 'items', 'shop', 'dp', 'p', 'prd'].includes(part.toLowerCase())) continue;
                 if (part.length > best.length) best = part;
             }
             if (best) {
@@ -307,18 +310,102 @@
         return '';
     }
 
+    // Domain-specific extraction (Creative Fallback)
+    function parseDomainSpecifics(url) {
+        const result = {
+            name: '',
+            image: '',
+            price: '',
+            source: 'URL Parser'
+        };
+
+        try {
+            const u = new URL(url);
+            const hostname = u.hostname.toLowerCase();
+            const path = u.pathname;
+
+            // --- AMAZON ---
+            if (hostname.includes('amazon.')) {
+                // Extract ASIN
+                const asinMatch = path.match(/(?:dp|gp\/product|exec\/obidos\/asin)\/(B[0-9A-Z]{9})/i);
+                if (asinMatch && asinMatch[1]) {
+                    const asin = asinMatch[1];
+                    // High-res image pattern
+                    result.image = `https://m.media-amazon.com/images/I/${asin}.jpg`;
+                }
+
+                // Extract name from slug (Amazon often has name before /dp/)
+                const parts = path.split('/');
+                const dpIndex = parts.findIndex(p => p === 'dp' || p === 'gp');
+                if (dpIndex > 0) {
+                    result.name = parts[dpIndex - 1].replace(/-/g, ' ');
+                } else {
+                    const nameParts = path.split('/').filter(p => p && !/^(dp|gp|product|ref|exec|obidos)$/.test(p) && !/B[0-9A-Z]{9}/i.test(p));
+                    if (nameParts.length > 0) result.name = nameParts[0].replace(/-/g, ' ');
+                }
+            }
+            // --- ETSY ---
+            else if (hostname.includes('etsy.com')) {
+                const listingMatch = path.match(/listing\/\d+\/([^/?#]+)/);
+                if (listingMatch && listingMatch[1]) {
+                    result.name = listingMatch[1].replace(/-/g, ' ');
+                }
+            }
+            // --- ASOS ---
+            else if (hostname.includes('asos.com')) {
+                const parts = path.split('/').filter(p => p && p.includes('-'));
+                if (parts.length > 0) {
+                    result.name = parts[0].replace(/-/g, ' ');
+                } else {
+                    result.name = parseNameFromUrl(url);
+                }
+            }
+
+            // Clean up name if found
+            if (result.name) {
+                result.name = result.name
+                    .split(' ')
+                    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                    .join(' ')
+                    .trim();
+                // Limit length
+                if (result.name.length > 100) result.name = result.name.substring(0, 97) + '...';
+            }
+        } catch (e) { }
+
+        return result;
+    }
+
+    // High-res Favicon Fallback
+    function getFaviconFallback(url) {
+        try {
+            const u = new URL(url);
+            return `https://www.google.com/s2/favicons?sz=256&domain=${u.hostname}`;
+        } catch (e) {
+            return '';
+        }
+    }
+
     // Try fetching metadata from Microlink
     async function fetchFromMicrolink(url) {
         try {
+            // We use a timeout to not hang forever
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            // Request palette and screenshot for maximum visual availability
             const response = await fetch(
-                `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true`
+                `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true&screenshot=true&audio=false&video=false`,
+                { signal: controller.signal }
             );
+            clearTimeout(timeoutId);
+
             const json = await response.json();
             if (json.status === 'success' && json.data) {
                 return json.data;
             }
         } catch (e) {
-            // Silently fail — some sites block Microlink
+            console.warn('Microlink fetch failed or timed out', e);
         }
         return null;
     }
@@ -330,123 +417,110 @@
             return;
         }
 
+        // Add https if missing
+        if (!/^https?:\/\//i.test(url)) {
+            url = 'https://' + url;
+            document.getElementById('itemUrl').value = url;
+        }
+
         // Start loading
         fetchBtn.classList.add('loading');
         fetchBtn.disabled = true;
         fetchPreview.classList.remove('show');
 
+        const nameInput = document.getElementById('itemName');
+        const imageInput = document.getElementById('itemImage');
+        const priceInput = document.getElementById('itemPrice');
+
         try {
-            // Strategy 1: Try Microlink metadata
+            // Stage 1: Try Microlink
             let data = await fetchFromMicrolink(url);
 
-            if (data) {
-                const nameInput = document.getElementById('itemName');
-                const imageInput = document.getElementById('itemImage');
-                const priceInput = document.getElementById('itemPrice');
+            // Stage 2: Domain-specific parsing (even if Microlink succeeded, it might be blocked/masked)
+            const domainData = parseDomainSpecifics(url);
 
-                // Clean and Set Name
+            // Check if Microlink returned "junk" like Captchas or generic titles
+            const isJunk = data && (
+                data.title?.toLowerCase().includes('robot check') ||
+                data.title?.toLowerCase().includes('amazon.com') ||
+                data.title?.toLowerCase() === 'amazon' ||
+                data.title?.toLowerCase().includes('just a moment') ||
+                data.title?.toLowerCase().includes('access denied')
+            );
+
+            if (data && !isJunk) {
+                // SUCCESS with Microlink
                 const cleanedTitle = cleanTitle(data.title, url);
-                if (cleanedTitle && cleanedTitle.length > 3) {
-                    nameInput.value = cleanedTitle;
-                } else if (data.description) {
-                    const descTitle = cleanTitle(data.description.split('.')[0], url);
-                    if (descTitle && descTitle.length < 80) nameInput.value = descTitle;
-                }
+                nameInput.value = cleanedTitle || domainData.name || '';
 
-                // Set Image - Smarter selection
+                // Image selection
                 let bestImage = '';
-
-                // Helper to normalize URLs
                 const normalizeUrl = (imgUrl) => {
                     if (!imgUrl) return null;
                     if (typeof imgUrl === 'object') imgUrl = imgUrl.url;
-                    if (typeof imgUrl !== 'string') return null;
-                    try {
-                        return new URL(imgUrl, url).href;
-                    } catch (e) {
-                        return imgUrl;
-                    }
+                    try { return new URL(imgUrl, url).href; } catch { return imgUrl; }
                 };
 
                 const imageCandidates = [
                     data.image,
                     ...(Array.isArray(data.images) ? data.images : []),
+                    domainData.image, // Include our guessed image
                     data.logo,
-                    data.screenshot
-                ]
-                    .map(normalizeUrl)
-                    .filter(img => img && img.length > 4 && !img.toLowerCase().includes('favicon'));
+                    getFaviconFallback(url)
+                ].map(normalizeUrl).filter(img => img && img.length > 10 && !img.includes('favicon.ico'));
 
-                if (imageCandidates.length > 0) {
-                    bestImage = imageCandidates[0];
-                }
+                bestImage = imageCandidates[0] || '';
+                imageInput.value = bestImage;
 
-                if (bestImage) {
-                    imageInput.value = bestImage;
-                }
-
-                // Set Price - More aggressive detection
+                // Price detection
                 let detectedPrice = '';
                 if (data.price) {
                     detectedPrice = typeof data.price === 'number' ? `£${data.price}` : data.price;
                 } else {
-                    // Combine all text data to search for currency patterns
-                    const searchStr = [
-                        data.description || '',
-                        data.title || '',
-                        data.publisher || '',
-                        typeof data.text === 'string' ? data.text : ''
-                    ].join(' | ');
-
-                    // Specific regex for currency symbols
-                    const currencyRegex = /(?:£|€|\$|USD|GBP|EUR|¥|CHF|AUD|CAD)\s?[\d,.]+(?:\.\d{2})?|[\d,.]+(?:\.\d{2})?\s?(?:£|€|\$|USD|GBP|EUR|¥|CHF|AUD|CAD)/i;
+                    const searchStr = [data.description, data.title, typeof data.text === 'string' ? data.text : ''].join(' ');
+                    const currencyRegex = /(?:£|€|\$|USD|GBP|EUR)\s?[\d,.]+(?:\.\d{2})?|[\d,.]+(?:\.\d{2})?\s?(?:£|€|\$|USD|GBP|EUR)/i;
                     const priceMatch = searchStr.match(currencyRegex);
-
-                    if (priceMatch) {
-                        detectedPrice = priceMatch[0];
-                    }
+                    if (priceMatch) detectedPrice = priceMatch[0];
                 }
+                priceInput.value = detectedPrice;
 
-                if (detectedPrice) {
-                    priceInput.value = detectedPrice;
-                }
-
-                // Show preview card
+                // Preview UI
                 if (bestImage) {
                     fetchPreviewImg.src = bestImage;
                     fetchPreviewImg.style.display = 'block';
                 } else {
                     fetchPreviewImg.style.display = 'none';
                 }
-
                 fetchPreviewTitle.textContent = nameInput.value || 'Product detected';
-                fetchPreviewDesc.textContent = detectedPrice
-                    ? `Price: ${detectedPrice}`
-                    : (data.description ? data.description.substring(0, 100) + '...' : url);
-                fetchPreview.classList.add('show');
-            } else {
-                // Fallback: extract name from URL slug
-                const parsedName = parseNameFromUrl(url);
-                const nameInput = document.getElementById('itemName');
-                if (parsedName) {
-                    nameInput.value = parsedName;
-                }
+                fetchPreviewDesc.textContent = detectedPrice ? `Price: ${detectedPrice}` : (data.description ? data.description.substring(0, 100) + '...' : 'Details fetched');
 
-                fetchPreviewTitle.textContent = parsedName || 'Could not auto-fetch';
-                fetchPreviewDesc.textContent = 'This site blocks auto-fetch. For the image: right-click the product image → Copy Image Address, then paste it in the Image URL field.';
-                fetchPreviewImg.style.display = 'none';
-                fetchPreview.classList.add('show');
-            }
-        } catch (err) {
-            // Final fallback on network error
-            const parsedName = parseNameFromUrl(url);
-            const nameInput = document.getElementById('itemName');
-            if (parsedName) {
+            } else {
+                // FALLBACK: Use domain-specific parsing and URL extraction
+                const parsedName = domainData.name || parseNameFromUrl(url);
                 nameInput.value = parsedName;
+
+                const fallbackImage = domainData.image || getFaviconFallback(url);
+                imageInput.value = fallbackImage;
+
+                fetchPreviewTitle.textContent = parsedName || 'Manual entry needed';
+                fetchPreviewImg.src = fallbackImage;
+                fetchPreviewImg.style.display = fallbackImage ? 'block' : 'none';
+
+                if (isJunk || !data) {
+                    fetchPreviewDesc.textContent = 'Site blocked auto-fetch. We used the link to guess details.';
+                } else {
+                    fetchPreviewDesc.textContent = 'Could not find all details. Please fill in any missing bits.';
+                }
             }
+
+            fetchPreview.classList.add('show');
+
+        } catch (err) {
+            console.error('Fetch error:', err);
+            const parsedName = parseNameFromUrl(url);
+            nameInput.value = parsedName;
             fetchPreviewTitle.textContent = parsedName || 'Fetch failed';
             fetchPreviewDesc.textContent = 'Please check the link or fill in manually.';
-            fetchPreviewImg.style.display = 'none';
             fetchPreview.classList.add('show');
         } finally {
             fetchBtn.classList.remove('loading');
