@@ -1,14 +1,10 @@
 // ============================================
 //  WISHLIST — App Logic
 // ============================================
-// Force named export from esm.sh
-import { createDbWorker as importedCreateDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12?bundle";
+import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
 
 (function () {
     'use strict';
-    
-    // Fallback if import failed to find the named export
-    const createDbWorker = importedCreateDbWorker;
 
     // --- Constants ---
     const STORAGE_KEY = 'wishlist_items';
@@ -59,23 +55,13 @@ import { createDbWorker as importedCreateDbWorker } from "https://esm.sh/sql.js-
     async function initSQLite() {
         if (sqliteWorker) return sqliteWorker;
         
-        // Final sanity check for createDbWorker
-        const actualCreateDbWorker = typeof createDbWorker === 'function' 
-            ? createDbWorker 
-            : (typeof importedCreateDbWorker === 'function' ? importedCreateDbWorker : null);
-            
-        if (!actualCreateDbWorker) {
-            console.error('sql.js-httpvfs: createDbWorker function not found in exports');
-            return null;
-        }
-
         try {
             // Use current path to locate wishlist.db
             const dbUrl = window.location.pathname.endsWith('/') 
                 ? window.location.pathname + 'wishlist.db'
                 : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1) + 'wishlist.db';
 
-            sqliteWorker = await actualCreateDbWorker(
+            sqliteWorker = await createDbWorker(
                 [
                     {
                         from: "inline",
