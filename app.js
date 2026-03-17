@@ -1,7 +1,7 @@
 // ============================================
 //  WISHLIST — App Logic
 // ============================================
-import { createDbWorker } from "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/index.js";
+import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
 
 (function () {
     'use strict';
