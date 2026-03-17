@@ -1,6 +1,7 @@
 // ============================================
 //  WISHLIST — App Logic
 // ============================================
+import { createDbWorker } from "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/index.js";
 
 (function () {
     'use strict';
@@ -59,7 +60,7 @@
                 ? window.location.pathname + 'wishlist.db'
                 : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1) + 'wishlist.db';
 
-            sqliteWorker = await window.sqlJSHTTPVFS.createDbWorker(
+            sqliteWorker = await createDbWorker(
                 [
                     {
                         from: "inline",
