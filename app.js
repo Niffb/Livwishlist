@@ -39,16 +39,61 @@
     };
 
     // ==========================================
-    //  SUPABASE CONFIGURATION
+    //  API CONFIGURATION
     // ==========================================
-    // IMPORTANT: Replace these with your actual Supabase URL and Anon Key
-    const SUPABASE_URL = 'https://tzhmcojnjnjtdrhkpdph.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6aG1jb2puam5qdGRyaGtwZHBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1MTIzMTYsImV4cCI6MjA4NzA4ODMxNn0.VhcR5YpvUglBbwqvw9FtM9l-s3H1IVFJZFAFMyZPshU';
+    const API_URL = 'http://localhost:3000/api';
     const ADMIN_PASSWORD = 'Pastore33!'; // Change this to your preferred password
+    const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const supabase = null; // Leftover from previous version, kept as null to avoid errors
 
-    let supabase = null;
-    if (SUPABASE_URL !== 'YOUR_SUPABASE_URL') {
-        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // --- SQLite configuration for GitHub Pages (sql.js-httpvfs) ---
+    const SQLITE_WORKER_URL = "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/sqlite.worker.js";
+    const SQLITE_WASM_URL = "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/sql-wasm.wasm";
+    let sqliteWorker = null;
+
+    async function initSQLite() {
+        if (sqliteWorker) return sqliteWorker;
+        try {
+            // Use current path to locate wishlist.db
+            const dbUrl = window.location.pathname.endsWith('/') 
+                ? window.location.pathname + 'wishlist.db'
+                : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1) + 'wishlist.db';
+
+            sqliteWorker = await window.sqlJSHTTPVFS.createDbWorker(
+                [
+                    {
+                        from: "inline",
+                        config: {
+                            serverMode: "all",
+                            requestChunkSize: 1024, // Matches our PRAGMA page_size = 1024
+                            url: dbUrl,
+                        },
+                    },
+                ],
+                SQLITE_WORKER_URL,
+                SQLITE_WASM_URL
+            );
+            return sqliteWorker;
+        } catch (error) {
+            console.error('Failed to initialize SQLite worker:', error);
+            return null;
+        }
+    }
+
+    async function loadItemsFromSQLite() {
+        const worker = await initSQLite();
+        if (!worker) return [];
+        try {
+            const results = await worker.db.query("SELECT * FROM wishlist ORDER BY created_at DESC");
+            // Map created_at to createdAt for app logic
+            return results.map(item => ({
+                ...item,
+                createdAt: item.created_at
+            }));
+        } catch (error) {
+            console.error('Error querying SQLite:', error);
+            return [];
+        }
     }
 
     // --- DOM References ---
@@ -101,109 +146,119 @@
         if (categorySelect.value !== 'clothes') subcategorySelect.value = '';
     });
 
-    // --- Supabase Data Sync ---
+    // --- API Data Sync ---
     async function loadItems() {
-        if (!supabase) {
-            // Fallback to localStorage if Supabase isn't configured yet
-            try {
-                const data = localStorage.getItem(STORAGE_KEY);
-                return data ? JSON.parse(data) : [];
-            } catch {
-                return [];
-            }
+        // If not on localhost, use the static SQLite DB directly
+        if (!IS_LOCAL) {
+            return await loadItemsFromSQLite();
         }
 
-        const { data, error } = await supabase
-            .from('wishlist')
-            .select('*')
-            .order('created_at', { ascending: false });
+        // On localhost, try the Node server first
+        try {
+            const response = await fetch(`${API_URL}/items`);
+            if (!response.ok) throw new Error('Failed to load items');
+            const data = await response.json();
+            
+            // Map created_at to createdAt for app logic
+            return data.map(item => ({
+                ...item,
+                createdAt: item.created_at
+            }));
+        } catch (error) {
+            console.warn('Error loading items from API, falling back to SQLite or local storage:', error);
+            
+            // Try SQLite first
+            const sqliteItems = await loadItemsFromSQLite();
+            if (sqliteItems.length > 0) return sqliteItems;
 
-        if (error) {
-            console.error('Error loading items:', error);
-            return [];
+            // Fallback to localStorage
+            const data = localStorage.getItem(STORAGE_KEY);
+            return data ? JSON.parse(data) : [];
         }
-
-        // Map snake_case from DB back to camelCase for app logic
-        return data.map(item => ({
-            ...item,
-            createdAt: item.created_at
-        }));
     }
 
     async function saveItem(item) {
-        if (!supabase) {
-            items.unshift(item);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+        if (!IS_LOCAL) {
+            alert('Adding items is only possible during local development. Please push your changes to GitHub to see them here.');
             return;
         }
-
-        // Map camelCase to snake_case for DB
-        const dbItem = { ...item, created_at: item.createdAt };
+        // Map camelCase to snake_case for API
+        const dbItem = { ...item, created_at: item.createdAt || Date.now() };
         delete dbItem.createdAt;
-        delete dbItem.subcategory; // Not in DB schema yet
 
-        const { error } = await supabase
-            .from('wishlist')
-            .insert([dbItem]);
-
-        if (error) console.error('Error saving item:', error);
+        try {
+            const response = await fetch(`${API_URL}/items`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dbItem)
+            });
+            if (!response.ok) throw new Error('Failed to save item');
+        } catch (error) {
+            console.error('Error saving item to API, falling back to local:', error);
+            items.unshift(item);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+        }
     }
 
     async function removeItem(id) {
-        if (!supabase) {
+        if (!IS_LOCAL) {
+            alert('Removing items is only possible during local development.');
+            return;
+        }
+        try {
+            const response = await fetch(`${API_URL}/items/${id}`, {
+                method: 'DELETE'
+            });
+            if (!response.ok) throw new Error('Failed to delete item');
+            
+            // Find for undo functionality
+            const index = items.findIndex(i => i.id === id);
+            if (index > -1) {
+                lastDeleted = { item: items[index], index };
+            }
+        } catch (error) {
+            console.error('Error removing item from API:', error);
             const index = items.findIndex(i => i.id === id);
             if (index > -1) {
                 lastDeleted = { item: items[index], index };
                 items.splice(index, 1);
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
             }
-            return;
         }
-
-        const { error } = await supabase
-            .from('wishlist')
-            .delete()
-            .eq('id', id);
-
-        if (error) console.error('Error removing item:', error);
     }
 
     async function updateItem(id, updates) {
-        if (!supabase) {
-            const index = items.findIndex(i => i.id === id);
-            if (index > -1) {
-                items[index] = { ...items[index], ...updates };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-            }
+        if (!IS_LOCAL) {
+            alert('Updating items is only possible during local development.');
             return;
         }
-
-        // Map camelCase to snake_case for DB
+        // Map camelCase to snake_case for API
         const dbUpdates = { ...updates };
         if (dbUpdates.createdAt) {
             dbUpdates.created_at = dbUpdates.createdAt;
             delete dbUpdates.createdAt;
         }
-        delete dbUpdates.subcategory; // Not in DB schema yet
 
-        const { error } = await supabase
-            .from('wishlist')
-            .update(dbUpdates)
-            .eq('id', id);
-
-        if (error) console.error('Error updating item:', error);
+        try {
+            const response = await fetch(`${API_URL}/items/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dbUpdates)
+            });
+            if (!response.ok) throw new Error('Failed to update item');
+        } catch (error) {
+            console.error('Error updating item on API:', error);
+            const index = items.findIndex(i => i.id === id);
+            if (index > -1) {
+                items[index] = { ...items[index], ...updates };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+            }
+        }
     }
 
     function subscribeToChanges() {
-        if (!supabase) return;
-
-        supabase
-            .channel('public:wishlist')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'wishlist' }, async () => {
-                items = await loadItems();
-                render();
-            })
-            .subscribe();
+        // Real-time updates not implemented for SQLite local server yet
+        // In a real app, we could use WebSockets or simple polling
     }
 
     // --- Generate unique ID ---
@@ -331,7 +386,7 @@
                 if (asinMatch && asinMatch[1]) {
                     const asin = asinMatch[1];
                     // High-res image pattern
-                    result.image = `https://m.media-amazon.com/images/I/${asin}.jpg`;
+                    result.image = `https://images-na.ssl-images-amazon.com/images/I/${asin}.jpg`;
                 }
 
                 // Extract name from slug (Amazon often has name before /dp/)
@@ -346,13 +401,22 @@
             }
             // --- ETSY ---
             else if (hostname.includes('etsy.com')) {
-                const listingMatch = path.match(/listing\/\d+\/([^/?#]+)/);
+                const listingMatch = path.match(/listing\/(\d+)/);
                 if (listingMatch && listingMatch[1]) {
-                    result.name = listingMatch[1].replace(/-/g, ' ');
+                    const listingId = listingMatch[1];
+                    // Etsy listing image patterns are harder to guess without API, 
+                    // but we can try to improve the name extraction at least.
+                    const slugMatch = path.match(/listing\/\d+\/([^/?#]+)/);
+                    if (slugMatch) result.name = slugMatch[1].replace(/-/g, ' ');
                 }
             }
             // --- ASOS ---
             else if (hostname.includes('asos.com')) {
+                // ASOS URLs often contain the product ID
+                const prdMatch = path.match(/prd\/(\d+)/);
+                if (prdMatch && prdMatch[1]) {
+                    // We can't easily guess the image URL for ASOS as it uses a different hash-based system
+                }
                 const parts = path.split('/').filter(p => p && p.includes('-'));
                 if (parts.length > 0) {
                     result.name = parts[0].replace(/-/g, ' ');
@@ -389,24 +453,49 @@
     // Try fetching metadata from Microlink
     async function fetchFromMicrolink(url) {
         try {
-            // We use a timeout to not hang forever
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-            // Request palette and screenshot for maximum visual availability
+            // Use a specific header to request better results for known blocked sites
             const response = await fetch(
-                `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true&screenshot=true&audio=false&video=false`,
-                { signal: controller.signal }
+                `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true&screenshot=true&meta=true`,
+                { 
+                    headers: {
+                        'x-api-key': '' // If you have a Microlink API key, put it here
+                    }
+                }
             );
-            clearTimeout(timeoutId);
 
             const json = await response.json();
             if (json.status === 'success' && json.data) {
                 return json.data;
             }
         } catch (e) {
-            console.warn('Microlink fetch failed or timed out', e);
+            console.warn('Microlink fetch failed', e);
         }
+        
+        // Fallback: Try a different proxy if Microlink fails
+        try {
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+            const response = await fetch(proxyUrl);
+            const json = await response.json();
+            if (json.contents) {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(json.contents, 'text/html');
+                
+                // Very basic extraction from meta tags
+                const getMeta = (query) => {
+                    const el = doc.querySelector(query);
+                    return el ? el.getAttribute('content') : null;
+                };
+
+                return {
+                    title: getMeta('meta[property="og:title"]') || doc.title,
+                    image: { url: getMeta('meta[property="og:image"]') || getMeta('meta[name="twitter:image"]') },
+                    description: getMeta('meta[property="og:description"]') || getMeta('name="description"'),
+                };
+            }
+        } catch (e) {
+            console.warn('AllOrigins fallback failed', e);
+        }
+        
         return null;
     }
 
