@@ -1,7 +1,6 @@
 // ============================================
 //  WISHLIST — App Logic
 // ============================================
-import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
 
 (function () {
     'use strict';
@@ -45,58 +44,7 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
     const API_URL = 'http://localhost:3000/api';
     const ADMIN_PASSWORD = 'Pastore33!'; // Change this to your preferred password
     const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const supabase = null; // Leftover from previous version, kept as null to avoid errors
-
-    // --- SQLite configuration for GitHub Pages (sql.js-httpvfs) ---
-    const SQLITE_WORKER_URL = "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/sqlite.worker.js";
-    const SQLITE_WASM_URL = "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/sql-wasm.wasm";
-    let sqliteWorker = null;
-
-    async function initSQLite() {
-        if (sqliteWorker) return sqliteWorker;
-        
-        try {
-            // Use current path to locate wishlist.db
-            const dbUrl = window.location.pathname.endsWith('/') 
-                ? window.location.pathname + 'wishlist.db'
-                : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1) + 'wishlist.db';
-
-            sqliteWorker = await createDbWorker(
-                [
-                    {
-                        from: "inline",
-                        config: {
-                            serverMode: "all",
-                            requestChunkSize: 1024, // Matches our PRAGMA page_size = 1024
-                            url: dbUrl,
-                        },
-                    },
-                ],
-                SQLITE_WORKER_URL,
-                SQLITE_WASM_URL
-            );
-            return sqliteWorker;
-        } catch (error) {
-            console.error('Failed to initialize SQLite worker:', error);
-            return null;
-        }
-    }
-
-    async function loadItemsFromSQLite() {
-        const worker = await initSQLite();
-        if (!worker) return [];
-        try {
-            const results = await worker.db.query("SELECT * FROM wishlist ORDER BY created_at DESC");
-            // Map created_at to createdAt for app logic
-            return results.map(item => ({
-                ...item,
-                createdAt: item.created_at
-            }));
-        } catch (error) {
-            console.error('Error querying SQLite:', error);
-            return [];
-        }
-    }
+    const supabase = null; // Leftover from previous version
 
     // --- DOM References ---
     const grid = document.getElementById('wishlistGrid');
@@ -150,9 +98,16 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
 
     // --- API Data Sync ---
     async function loadItems() {
-        // If not on localhost, use the static SQLite DB directly
+        // If not on localhost, use the static JSON file directly
         if (!IS_LOCAL) {
-            return await loadItemsFromSQLite();
+            try {
+                const response = await fetch('wishlist.json');
+                if (!response.ok) throw new Error('Failed to load wishlist.json');
+                return await response.json();
+            } catch (error) {
+                console.error('Error loading wishlist.json:', error);
+                return [];
+            }
         }
 
         // On localhost, try the Node server first
@@ -167,11 +122,13 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
                 createdAt: item.created_at
             }));
         } catch (error) {
-            console.warn('Error loading items from API, falling back to SQLite or local storage:', error);
+            console.warn('Error loading items from API, falling back to JSON or local storage:', error);
             
-            // Try SQLite first
-            const sqliteItems = await loadItemsFromSQLite();
-            if (sqliteItems.length > 0) return sqliteItems;
+            // Try local JSON file as backup
+            try {
+                const response = await fetch('wishlist.json');
+                if (response.ok) return await response.json();
+            } catch (e) {}
 
             // Fallback to localStorage
             const data = localStorage.getItem(STORAGE_KEY);
@@ -259,8 +216,7 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
     }
 
     function subscribeToChanges() {
-        // Real-time updates not implemented for SQLite local server yet
-        // In a real app, we could use WebSockets or simple polling
+        // Not used
     }
 
     // --- Generate unique ID ---
@@ -280,6 +236,7 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
 
     // --- Escape HTML ---
     function escapeHtml(str) {
+        if (!str) return '';
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
@@ -406,19 +363,12 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
                 const listingMatch = path.match(/listing\/(\d+)/);
                 if (listingMatch && listingMatch[1]) {
                     const listingId = listingMatch[1];
-                    // Etsy listing image patterns are harder to guess without API, 
-                    // but we can try to improve the name extraction at least.
                     const slugMatch = path.match(/listing\/\d+\/([^/?#]+)/);
                     if (slugMatch) result.name = slugMatch[1].replace(/-/g, ' ');
                 }
             }
             // --- ASOS ---
             else if (hostname.includes('asos.com')) {
-                // ASOS URLs often contain the product ID
-                const prdMatch = path.match(/prd\/(\d+)/);
-                if (prdMatch && prdMatch[1]) {
-                    // We can't easily guess the image URL for ASOS as it uses a different hash-based system
-                }
                 const parts = path.split('/').filter(p => p && p.includes('-'));
                 if (parts.length > 0) {
                     result.name = parts[0].replace(/-/g, ' ');
@@ -431,7 +381,7 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
             if (result.name) {
                 result.name = result.name
                     .split(' ')
-                    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                    .map(w => w.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
                     .join(' ')
                     .trim();
                 // Limit length
@@ -455,14 +405,8 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
     // Try fetching metadata from Microlink
     async function fetchFromMicrolink(url) {
         try {
-            // Use a specific header to request better results for known blocked sites
             const response = await fetch(
-                `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true&screenshot=true&meta=true`,
-                { 
-                    headers: {
-                        'x-api-key': '' // If you have a Microlink API key, put it here
-                    }
-                }
+                `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true&screenshot=true&meta=true`
             );
 
             const json = await response.json();
@@ -508,13 +452,11 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
             return;
         }
 
-        // Add https if missing
         if (!/^https?:\/\//i.test(url)) {
             url = 'https://' + url;
             document.getElementById('itemUrl').value = url;
         }
 
-        // Start loading
         fetchBtn.classList.add('loading');
         fetchBtn.disabled = true;
         fetchPreview.classList.remove('show');
@@ -524,13 +466,9 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         const priceInput = document.getElementById('itemPrice');
 
         try {
-            // Stage 1: Try Microlink
             let data = await fetchFromMicrolink(url);
-
-            // Stage 2: Domain-specific parsing (even if Microlink succeeded, it might be blocked/masked)
             const domainData = parseDomainSpecifics(url);
 
-            // Check if Microlink returned "junk" like Captchas or generic titles
             const isJunk = data && (
                 data.title?.toLowerCase().includes('robot check') ||
                 data.title?.toLowerCase().includes('amazon.com') ||
@@ -540,11 +478,9 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
             );
 
             if (data && !isJunk) {
-                // SUCCESS with Microlink
                 const cleanedTitle = cleanTitle(data.title, url);
                 nameInput.value = cleanedTitle || domainData.name || '';
 
-                // Image selection
                 let bestImage = '';
                 const normalizeUrl = (imgUrl) => {
                     if (!imgUrl) return null;
@@ -555,7 +491,7 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
                 const imageCandidates = [
                     data.image,
                     ...(Array.isArray(data.images) ? data.images : []),
-                    domainData.image, // Include our guessed image
+                    domainData.image,
                     data.logo,
                     getFaviconFallback(url)
                 ].map(normalizeUrl).filter(img => img && img.length > 10 && !img.includes('favicon.ico'));
@@ -563,7 +499,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
                 bestImage = imageCandidates[0] || '';
                 imageInput.value = bestImage;
 
-                // Price detection
                 let detectedPrice = '';
                 if (data.price) {
                     detectedPrice = typeof data.price === 'number' ? `£${data.price}` : data.price;
@@ -575,7 +510,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
                 }
                 priceInput.value = detectedPrice;
 
-                // Preview UI
                 if (bestImage) {
                     fetchPreviewImg.src = bestImage;
                     fetchPreviewImg.style.display = 'block';
@@ -586,7 +520,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
                 fetchPreviewDesc.textContent = detectedPrice ? `Price: ${detectedPrice}` : (data.description ? data.description.substring(0, 100) + '...' : 'Details fetched');
 
             } else {
-                // FALLBACK: Use domain-specific parsing and URL extraction
                 const parsedName = domainData.name || parseNameFromUrl(url);
                 nameInput.value = parsedName;
 
@@ -651,7 +584,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
                 ? [...items]
                 : items.filter((item) => item.category === activeCategory);
 
-        // Apply sorting
         switch (activeSort) {
             case 'newest':
                 filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -685,11 +617,9 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
             emptyState.style.display = 'none';
             grid.style.display = 'grid';
 
-            // If viewing Clothes category, group by subcategory
             const shouldGroup = activeCategory === 'clothes';
 
             if (shouldGroup) {
-                // Group items by subcategory
                 const groups = {};
                 const ungrouped = [];
                 filtered.forEach(item => {
@@ -702,9 +632,7 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
                     }
                 });
 
-                // Render order: sorted subcategory keys, then ungrouped
                 const orderedKeys = Object.keys(SUBCATEGORY_LABELS).filter(k => groups[k]);
-                // Add any keys not in SUBCATEGORY_LABELS
                 Object.keys(groups).forEach(k => { if (!orderedKeys.includes(k)) orderedKeys.push(k); });
 
                 let globalIndex = 0;
@@ -793,10 +721,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         return card;
     }
 
-    // ==========================================
-    //  TABS
-    // ==========================================
-
     tabs.forEach((tab) => {
         tab.addEventListener('click', () => {
             tabs.forEach((t) => t.classList.remove('active'));
@@ -806,15 +730,10 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         });
     });
 
-    // Sort listener
     sortSelect.addEventListener('change', () => {
         activeSort = sortSelect.value;
         render();
     });
-
-    // ==========================================
-    //  MODAL
-    // ==========================================
 
     function openModal() {
         modalOverlay.classList.add('open');
@@ -833,7 +752,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         fetchPreview.classList.remove('show');
         subcategoryGroup.style.display = 'none';
         subcategorySelect.value = '';
-        // Reset edit state
         if (editingItemId) {
             editingItemId = null;
             formSubmitBtn.textContent = 'Add Item';
@@ -862,10 +780,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         }
     });
 
-    // ==========================================
-    //  AUTHENTICATION FLOW
-    // ==========================================
-
     function openAuthModal() {
         authModalOverlay.classList.add('open');
         document.body.style.overflow = 'hidden';
@@ -887,7 +801,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         if (e.target === authModalOverlay) closeAuthModal();
     });
 
-    // Handle Login (Password Only)
     authForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const password = authPasswordInput.value.trim();
@@ -907,22 +820,11 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         }
     });
 
-    // Logout
     logoutBtn.addEventListener('click', async () => {
         localStorage.removeItem('wishlist_admin_session');
         currentUser = null;
         updateAuthUI();
-        if (supabase) await supabase.auth.signOut();
     });
-
-    if (supabase) {
-        // Handle Auth State Changes
-        supabase.auth.onAuthStateChange((event, session) => {
-            if (currentUser?.id === 'admin') return; // Don't override admin session
-            currentUser = session?.user || null;
-            updateAuthUI();
-        });
-    }
 
     function updateAuthUI() {
         if (currentUser) {
@@ -936,12 +838,8 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
             userDisplay.style.display = 'none';
             userEmailSpan.textContent = '';
         }
-        render(); // Re-render to show/hide delete buttons
+        render();
     }
-
-    // ==========================================
-    //  ADD ITEM
-    // ==========================================
 
     itemForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -957,13 +855,11 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         if (!name || !url) return;
 
         if (editingItemId) {
-            // Update existing item
             await updateItem(editingItemId, { name, url, note, category, price, image, subcategory });
             editingItemId = null;
             formSubmitBtn.textContent = 'Add Item';
             document.querySelector('.modal-title').textContent = 'Add to Wishlist';
         } else {
-            // Create new item
             const newItem = {
                 id: uid(),
                 name,
@@ -977,15 +873,16 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
             };
             await saveItem(newItem);
         }
-        if (!supabase) {
-            render();
+        if (!IS_LOCAL) {
+             // Re-load items if we're simulating local add (though we alert above)
+             items = await loadItems();
+             render();
+        } else {
+             items = await loadItems();
+             render();
         }
         closeModal();
     });
-
-    // ==========================================
-    //  EDIT ITEM
-    // ==========================================
 
     grid.addEventListener('click', (e) => {
         const editBtn = e.target.closest('.btn-edit');
@@ -996,7 +893,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         const item = items.find(i => i.id === id);
         if (!item) return;
 
-        // Fill the form with existing data
         editingItemId = id;
         document.getElementById('itemUrl').value = item.url || '';
         document.getElementById('itemName').value = item.name || '';
@@ -1004,7 +900,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         document.getElementById('itemNote').value = item.note || '';
         document.getElementById('itemCategory').value = item.category || 'misc';
         document.getElementById('itemPrice').value = item.price || '';
-        // Handle subcategory
         if (item.category === 'clothes') {
             subcategoryGroup.style.display = 'block';
             subcategorySelect.value = item.subcategory || '';
@@ -1017,10 +912,6 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         openModal();
     });
 
-    // ==========================================
-    //  DELETE ITEM
-    // ==========================================
-
     grid.addEventListener('click', async (e) => {
         const deleteBtn = e.target.closest('.btn-delete');
         if (!deleteBtn) return;
@@ -1029,15 +920,10 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
         const id = deleteBtn.dataset.id;
 
         await removeItem(id);
-        if (!supabase) {
-            render();
-            showToast();
-        }
+        items = await loadItems();
+        render();
+        showToast();
     });
-
-    // ==========================================
-    //  TOAST WITH UNDO
-    // ==========================================
 
     function showToast() {
         clearTimeout(toastTimeout);
@@ -1051,37 +937,22 @@ import { createDbWorker } from "https://esm.sh/sql.js-httpvfs@0.8.12";
     toastUndo.addEventListener('click', async () => {
         if (!lastDeleted) return;
 
-        if (!supabase) {
-            items.splice(lastDeleted.index, 0, lastDeleted.item);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-        } else {
-            await saveItem(lastDeleted.item);
-        }
+        await saveItem(lastDeleted.item);
+        items = await loadItems();
+        render();
 
         lastDeleted = null;
         toast.classList.remove('show');
         clearTimeout(toastTimeout);
-        if (!supabase) render();
     });
 
-    // --- Boot ---
     async function init() {
         items = await loadItems();
         render();
 
-        // Check for hardcoded session first
         if (localStorage.getItem('wishlist_admin_session') === 'true') {
             currentUser = { email: 'Admin (Hardcoded)', id: 'admin' };
             updateAuthUI();
-        }
-
-        if (supabase) {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!currentUser) { // Only set if not already admin
-                currentUser = session?.user || null;
-                updateAuthUI();
-            }
-            subscribeToChanges();
         }
     }
 

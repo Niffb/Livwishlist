@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -30,6 +31,24 @@ db.exec(`
   )
 `);
 
+// Helper to export to JSON
+function exportToJson() {
+    try {
+        const items = db.prepare('SELECT * FROM wishlist ORDER BY created_at DESC').all();
+        const formattedItems = items.map(item => ({
+            ...item,
+            createdAt: item.created_at
+        }));
+        fs.writeFileSync(path.join(__dirname, 'wishlist.json'), JSON.stringify(formattedItems, null, 2));
+        console.log('Updated wishlist.json');
+    } catch (error) {
+        console.error('Error exporting to JSON:', error);
+    }
+}
+
+// Initial export
+exportToJson();
+
 // API Endpoints
 
 // GET all items
@@ -56,6 +75,7 @@ app.post('/api/items', (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, name, url, image, price, note, category, subcategory, created_at || Date.now());
     
+    exportToJson(); // Update JSON
     res.status(201).json({ id, message: 'Item added successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -80,6 +100,7 @@ app.patch('/api/items/:id', (req, res) => {
     if (info.changes === 0) {
       return res.status(404).json({ error: 'Item not found' });
     }
+    exportToJson(); // Update JSON
     res.json({ message: 'Item updated successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -94,6 +115,7 @@ app.delete('/api/items/:id', (req, res) => {
     if (info.changes === 0) {
       return res.status(404).json({ error: 'Item not found' });
     }
+    exportToJson(); // Update JSON
     res.json({ message: 'Item deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
