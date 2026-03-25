@@ -41,10 +41,9 @@
     // ==========================================
     //  API CONFIGURATION
     // ==========================================
-    const API_URL = 'http://localhost:3000/api';
+    const SUPABASE_URL = 'https://tzhmcojnjnjtdrhkpdph.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6aG1jb2puam5qdGRyaGtwZHBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1MTIzMTYsImV4cCI6MjA4NzA4ODMxNn0.VhcR5YpvUglBbwqvw9FtM9l-s3H1IVFJZFAFMyZPshU';
     const ADMIN_PASSWORD = 'Pastore33!'; // Change this to your preferred password
-    const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const supabase = null; // Leftover from previous version
 
     // --- DOM References ---
     const grid = document.getElementById('wishlistGrid');
@@ -96,24 +95,21 @@
         if (categorySelect.value !== 'clothes') subcategorySelect.value = '';
     });
 
-    // --- API Data Sync ---
-    async function loadItems() {
-        // If not on localhost, use the static JSON file directly
-        if (!IS_LOCAL) {
-            try {
-                const response = await fetch('wishlist.json');
-                if (!response.ok) throw new Error('Failed to load wishlist.json');
-                return await response.json();
-            } catch (error) {
-                console.error('Error loading wishlist.json:', error);
-                return [];
-            }
-        }
+    // --- API Data Sync (Supabase) ---
+    function getHeaders() {
+        return {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json'
+        };
+    }
 
-        // On localhost, try the Node server first
+    async function loadItems() {
         try {
-            const response = await fetch(`${API_URL}/items`);
-            if (!response.ok) throw new Error('Failed to load items');
+            const response = await fetch(`${SUPABASE_URL}/rest/v1/wishlist?select=*&order=created_at.desc`, {
+                headers: getHeaders()
+            });
+            if (!response.ok) throw new Error('Failed to load items from Supabase');
             const data = await response.json();
             
             // Map created_at to createdAt for app logic
@@ -122,76 +118,53 @@
                 createdAt: item.created_at
             }));
         } catch (error) {
-            console.warn('Error loading items from API, falling back to JSON or local storage:', error);
-            
-            // Try local JSON file as backup
-            try {
-                const response = await fetch('wishlist.json');
-                if (response.ok) return await response.json();
-            } catch (e) {}
-
-            // Fallback to localStorage
-            const data = localStorage.getItem(STORAGE_KEY);
-            return data ? JSON.parse(data) : [];
+            console.error('Error loading items from Supabase:', error);
+            return [];
         }
     }
 
     async function saveItem(item) {
-        if (!IS_LOCAL) {
-            alert('Adding items is only possible during local development. Please push your changes to GitHub to see them here.');
-            return;
-        }
-        // Map camelCase to snake_case for API
         const dbItem = { ...item, created_at: item.createdAt || Date.now() };
         delete dbItem.createdAt;
 
         try {
-            const response = await fetch(`${API_URL}/items`, {
+            const response = await fetch(`${SUPABASE_URL}/rest/v1/wishlist`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getHeaders(),
                 body: JSON.stringify(dbItem)
             });
-            if (!response.ok) throw new Error('Failed to save item');
+            if (!response.ok) throw new Error('Failed to save item to Supabase');
+            showToast('Item saved', false);
         } catch (error) {
-            console.error('Error saving item to API, falling back to local:', error);
-            items.unshift(item);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+            console.error('Error saving item to Supabase:', error);
+            showToast('Failed to save', false);
+            throw error;
         }
     }
 
     async function removeItem(id) {
-        if (!IS_LOCAL) {
-            alert('Removing items is only possible during local development.');
-            return;
-        }
         try {
-            const response = await fetch(`${API_URL}/items/${id}`, {
-                method: 'DELETE'
+            // Find for undo functionality before deleting
+            const index = items.findIndex(i => i.id === id);
+            if (index > -1) {
+                lastDeleted = { item: items[index], index };
+            }
+
+            const response = await fetch(`${SUPABASE_URL}/rest/v1/wishlist?id=eq.${id}`, { 
+                method: 'DELETE',
+                headers: getHeaders()
             });
-            if (!response.ok) throw new Error('Failed to delete item');
+            if (!response.ok) throw new Error('Failed to delete item from Supabase');
             
-            // Find for undo functionality
-            const index = items.findIndex(i => i.id === id);
-            if (index > -1) {
-                lastDeleted = { item: items[index], index };
-            }
+            showToast('Item removed', true);
         } catch (error) {
-            console.error('Error removing item from API:', error);
-            const index = items.findIndex(i => i.id === id);
-            if (index > -1) {
-                lastDeleted = { item: items[index], index };
-                items.splice(index, 1);
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-            }
+            console.error('Error removing item from Supabase:', error);
+            showToast('Failed to remove', false);
+            throw error;
         }
     }
 
     async function updateItem(id, updates) {
-        if (!IS_LOCAL) {
-            alert('Updating items is only possible during local development.');
-            return;
-        }
-        // Map camelCase to snake_case for API
         const dbUpdates = { ...updates };
         if (dbUpdates.createdAt) {
             dbUpdates.created_at = dbUpdates.createdAt;
@@ -199,19 +172,17 @@
         }
 
         try {
-            const response = await fetch(`${API_URL}/items/${id}`, {
+            const response = await fetch(`${SUPABASE_URL}/rest/v1/wishlist?id=eq.${id}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getHeaders(),
                 body: JSON.stringify(dbUpdates)
             });
-            if (!response.ok) throw new Error('Failed to update item');
+            if (!response.ok) throw new Error('Failed to update item on Supabase');
+            showToast('Item updated', false);
         } catch (error) {
-            console.error('Error updating item on API:', error);
-            const index = items.findIndex(i => i.id === id);
-            if (index > -1) {
-                items[index] = { ...items[index], ...updates };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-            }
+            console.error('Error updating item on Supabase:', error);
+            showToast('Failed to update', false);
+            throw error;
         }
     }
 
@@ -406,7 +377,7 @@
     async function fetchFromMicrolink(url) {
         try {
             const response = await fetch(
-                `${MICROLINK_API}?url=${encodeURIComponent(url)}&palette=true&screenshot=true&meta=true`
+                `${MICROLINK_API}?url=${encodeURIComponent(url)}&meta=true`
             );
 
             const json = await response.json();
@@ -444,6 +415,13 @@
         
         return null;
     }
+
+    document.getElementById('itemUrl').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            fetchBtn.click();
+        }
+    });
 
     fetchBtn.addEventListener('click', async () => {
         let url = document.getElementById('itemUrl').value.trim();
@@ -873,14 +851,9 @@
             };
             await saveItem(newItem);
         }
-        if (!IS_LOCAL) {
-             // Re-load items if we're simulating local add (though we alert above)
-             items = await loadItems();
-             render();
-        } else {
-             items = await loadItems();
-             render();
-        }
+        
+        items = await loadItems();
+        render();
         closeModal();
     });
 
@@ -922,11 +895,12 @@
         await removeItem(id);
         items = await loadItems();
         render();
-        showToast();
     });
 
-    function showToast() {
+    function showToast(message = 'Item removed', showUndo = true) {
         clearTimeout(toastTimeout);
+        toast.querySelector('.toast-text').textContent = message;
+        toastUndo.style.display = showUndo ? 'inline-block' : 'none';
         toast.classList.add('show');
         toastTimeout = setTimeout(() => {
             toast.classList.remove('show');
