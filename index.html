@@ -5,16 +5,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description"
-    content="A minimal, beautifully organized shopping wishlist to save and manage product links across categories.">
+    content="A clean, minimal wishlist to save and manage product links across categories.">
   <title>Livs Wishlist</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
-    href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600;700&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Livs Wishlist">
+  <link rel="apple-touch-icon" href="favicon.svg">
 </head>
 
 <body>
@@ -22,14 +27,24 @@
   <!-- Header -->
   <header class="site-header">
     <div class="header-inner">
-      <h1 class="site-title">Livs Wishlist</h1>
-      <p class="site-subtitle">things I love</p>
+      <div class="header-branding">
+        <h1 class="site-title">Livs Wishlist</h1>
+        <p class="site-subtitle">things I love</p>
+      </div>
+      <div class="header-summary" id="headerSummary">0 items • £0.00</div>
     </div>
-    <div class="header-actions">
-      <button id="authBtn" class="btn-auth">Login</button>
-      <div id="userDisplay" class="user-display" style="display: none;">
-        <span id="userEmail"></span>
-        <button id="logoutBtn" class="btn-logout">Logout</button>
+    
+    <div class="header-controls">
+      <div class="search-wrapper">
+        <input type="search" id="searchInput" class="search-input" placeholder="Search wishlist…">
+      </div>
+      <div class="header-actions">
+        <button id="shareBtn" class="btn-share" title="Share Wishlist">Share</button>
+        <button id="authBtn" class="btn-auth">Login</button>
+        <div id="userDisplay" class="user-display" style="display: none;">
+          <span id="userEmail"></span>
+          <button id="logoutBtn" class="btn-logout">Logout</button>
+        </div>
       </div>
     </div>
   </header>
@@ -38,6 +53,7 @@
   <nav class="category-nav">
     <div class="nav-inner">
       <button class="cat-tab active" data-category="all">All</button>
+      <button class="cat-tab" data-category="priority">Priority</button>
       <button class="cat-tab" data-category="clothes">Clothes</button>
       <button class="cat-tab" data-category="jewellery">Jewellery</button>
       <button class="cat-tab" data-category="shoes">Shoes</button>
@@ -47,15 +63,27 @@
       <button class="cat-tab" data-category="home">Home</button>
       <button class="cat-tab" data-category="books">Books</button>
       <button class="cat-tab" data-category="misc">Miscellaneous</button>
-      <div class="sort-wrapper">
-        <label for="sortSelect" class="sort-label">Sort:</label>
-        <select id="sortSelect" class="sort-select">
-          <option value="newest">Newest</option>
-          <option value="oldest">Oldest</option>
-          <option value="price-low">Price: Low → High</option>
-          <option value="price-high">Price: High → Low</option>
-          <option value="name">Name A–Z</option>
-        </select>
+      <button class="cat-tab" data-category="received">Received</button>
+
+      <div class="filters-group">
+        <div class="filter-wrapper">
+          <select id="priceFilter" class="filter-select">
+            <option value="all">Any Price</option>
+            <option value="under25">Under £25</option>
+            <option value="25to50">£25 – £50</option>
+            <option value="over50">£50+</option>
+          </select>
+        </div>
+        <div class="sort-wrapper">
+          <label for="sortSelect" class="sort-label">Sort:</label>
+          <select id="sortSelect" class="sort-select">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="price-low">Price: Low → High</option>
+            <option value="price-high">Price: High → Low</option>
+            <option value="name">Name A–Z</option>
+          </select>
+        </div>
       </div>
     </div>
   </nav>
@@ -154,7 +182,37 @@
           <label for="itemPrice">Price <span class="optional">(auto-filled)</span></label>
           <input type="text" id="itemPrice" placeholder="e.g. £29.99">
         </div>
+
+        <div class="form-checkbox-row">
+          <label class="checkbox-label">
+            <input type="checkbox" id="itemPriority">
+            <span>High Priority Item</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="itemReceived">
+            <span>Received / Gifted</span>
+          </label>
+        </div>
+
         <button type="submit" class="btn-submit" id="formSubmitBtn">Add Item</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Reserve / Claim Modal -->
+  <div class="modal-overlay" id="claimModalOverlay">
+    <div class="modal" id="claimModal">
+      <div class="modal-header">
+        <h2 class="modal-title">Reserve / Claim Gift</h2>
+        <button class="modal-close" id="claimModalClose" aria-label="Close">&times;</button>
+      </div>
+      <p class="auth-hint">Enter your name so others know you are getting this item!</p>
+      <form id="claimForm">
+        <div class="form-group">
+          <label for="claimerName">Your Name</label>
+          <input type="text" id="claimerName" placeholder="e.g. Sarah" required>
+        </div>
+        <button type="submit" class="btn-submit" id="claimSubmitBtn">Reserve Item</button>
       </form>
     </div>
   </div>
@@ -178,7 +236,7 @@
     </div>
   </div>
 
-  <!-- Delete Confirmation Toast -->
+  <!-- Toast Notification -->
   <div class="toast" id="toast">
     <span class="toast-text">Item removed</span>
     <button class="toast-undo" id="toastUndo">Undo</button>

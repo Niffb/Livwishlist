@@ -1,0 +1,116 @@
+================================================================================
+                       NIFF'S WISHLIST - ADDED FEATURES
+================================================================================
+
+1. REBRANDING & MODERN DESIGN SYSTEM
+--------------------------------------------------------------------------------
+- Brand Identity: Rebranded from "Liv's Wishlist" to "NIFF's WISHLIST".
+- Visual Aesthetics: Minimalist design system built with custom CSS, using the 
+  Inter Google Font family.
+- Refined UI Components: Modern dark/light subtle accents, clean typography, 
+  custom color tokens, smooth CSS transitions, and high-contrast badges.
+- Improved Card Layout: Vertical stacking of content, isolated action buttons, 
+  domain favicon display, and clean text truncation.
+- Optimized Image Presentation: Set to `object-fit: contain` with padded 
+  containers so product images display fully without awkward cropping or zooming.
+
+
+2. BULLETPROOF WEBSCRAPER & AUTOMATED METADATA EXTRACTION
+--------------------------------------------------------------------------------
+- One-Click Fetch: Enter any product URL and click "Fetch" to automatically 
+  populate item title, image, price, category, subcategory, and variant/size.
+- Domain-Specific Handlers: Tailored scrapers for 20+ major retail sites 
+  (Amazon, ASOS, Zara, H&M, Uniqlo, Mango, Boohoo, PLT, Boots, Sephora, 
+  Waterstones, IKEA, John Lewis, etc.).
+- Deep Image Extraction: Advanced parsing of JS data structures (e.g. Amazon 
+  `hiRes`, `large`, `landingImage`, and `data-old-hires`).
+- Multi-Source Image Search: Parallel Bing Images, Google Images, and DuckDuckGo 
+  search fallbacks when scrapers or OpenGraph meta tags fail.
+- Anti-Bot Detection & Fallback: Automatic handling of Cloudflare, PerimeterX, 
+  and Imperva bot challenges with fallback search engine price & image parsing.
+- Smart Data Cleaning: Automatic stripping of trademark/registered symbols 
+  (™, ®, ©), product/SKU codes, and internal junk text from product names; 
+  filtering out website logos, favicons, and tiny icons from image selection.
+- Automatic Variant/Size Detection: Extracts item sizes (S, M, L), volumes 
+  (e.g., 50ml), weights (e.g., 100g), and pack details.
+
+
+3. CATEGORISATION & SUBCATEGORISATION
+--------------------------------------------------------------------------------
+- Category Tabs: All, Priority, Clothes, Jewellery, Shoes, Bags, Cosmetics, 
+  Stationery, Home, Books, Miscellaneous, and Received.
+- Smart Auto-Categorisation: Automated keyword and domain recognition algorithm 
+  that assigns incoming products to the correct category.
+- Clothes Subcategories: Dedicated subcategories for apparel (Tops, T-Shirts, 
+  Jumpers & Knitwear, Hoodies & Sweatshirts, Jackets & Coats, Dresses, Skirts, 
+  Trousers & Jeans, Shorts, Activewear, Swimwear, Underwear & Loungewear, 
+  Accessories, and Other).
+
+
+4. SEARCHING, FILTERING & SORTING
+--------------------------------------------------------------------------------
+- Live Search Bar: Instantly filters items by title, domain, note, category, 
+  or subcategory.
+- Price Bracket Filters: Filter wishlist by price range (Any Price, Under £25, 
+  £25 - £50, £50+).
+- Dynamic Sorting: Sort by Newest, Oldest, Price (Low → High), Price (High → Low), 
+  or Alphabetical (Name A–Z).
+
+
+5. WISHLIST SUMMARY & TOTAL COST TRACKING
+--------------------------------------------------------------------------------
+- Live Header Summary: Displays total count of active wishlist items and the 
+  combined monetary cost (e.g., "12 items • £349.50").
+
+
+6. ITEM RESERVATION / CLAIM SYSTEM (GIFT GIVING)
+--------------------------------------------------------------------------------
+- Guest Reservations: Allows visitors/friends to reserve/claim items so others 
+  know an item is being purchased (prevents duplicate gifts).
+- Unclaim Support: Guest option to release/unclaim an item if plans change.
+- Status Badging: Distinct visual badging and status overlays for reserved items.
+- Received Tab: Separate section to archive and view items already received/gifted.
+
+
+7. PRIORITY MARKING
+--------------------------------------------------------------------------------
+- High Priority Toggle: Mark items as "High Priority (Must Have)".
+- Priority Filtering: Displays a dedicated priority badge on product cards and 
+  groups high-priority items under the "Priority" tab.
+
+
+8. ADMIN AUTHENTICATION & GUEST ACCESS MODES
+--------------------------------------------------------------------------------
+- Admin Password Security: Protected login via server authentication 
+  (`/api/login`) and frontend authentication modal.
+- Admin Mode: Full permissions to Add, Edit, Delete, and update items.
+- Guest Mode: Read-only access for friends/family with claim/reserve capability, 
+  protecting the wishlist from unauthorized edits.
+
+
+9. BACKEND ARCHITECTURE & DATA SYNC
+--------------------------------------------------------------------------------
+- Dual-Persistence Engine: Integrates live Supabase cloud database sync with 
+  automatic fallback to local Node/Express backend and local file storage.
+- Real-Time Multi-Device Sync: Periodic polling mechanism ensuring updates sync 
+  across multiple active browser windows.
+- Database Migration Tools: Node scripts (`migrate_data.js`, `migrate_to_supabase.js`) 
+  for seamless data portability.
+- Supabase Keep-Alive: GitHub Actions automated workflow to keep free-tier 
+  Supabase databases active.
+- Cross-Platform Server Support: Support for localhost, IPv6 loopback (`::1`), 
+  and production cloud environments (Vercel, Render, GitHub Pages).
+
+
+10. PWA, SHARING & MOBILE UX
+--------------------------------------------------------------------------------
+- Share Button: Integrated Web Share API with clipboard copy fallback for 
+  instant wishlist sharing.
+- Progressive Web App (PWA): Includes `manifest.json`, custom SVG favicon, 
+  standalone mobile display mode, dark theme status bar (`#000000`), and 
+  Apple Touch Icon support.
+- Mobile Navigation & Layout: Touch-optimized layout with horizontal swipeable 
+  category tabs, responsive grid columns, and mobile-friendly form inputs.
+- Undo Deletion Toast: Temporary pop-up notification with "Undo" button to 
+  instantly restore accidentally deleted items.
+================================================================================

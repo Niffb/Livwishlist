@@ -1,15 +1,13 @@
 // ============================================
-//  WISHLIST — App Logic
+//  WISHLIST — App Logic (Liv's Wishlist)
 // ============================================
 
 (function () {
     'use strict';
 
     // --- Constants ---
-    const STORAGE_KEY = 'wishlist_items';
-    const MICROLINK_API = 'https://api.microlink.io';
-    const CATEGORIES = ['clothes', 'jewellery', 'shoes', 'bags', 'cosmetics', 'stationery', 'home', 'books', 'misc'];
     const CATEGORY_LABELS = {
+        priority: 'Priority',
         clothes: 'Clothes',
         jewellery: 'Jewellery',
         shoes: 'Shoes',
@@ -19,6 +17,7 @@
         home: 'Home',
         books: 'Books',
         misc: 'Miscellaneous',
+        received: 'Received'
     };
 
     const SUBCATEGORY_LABELS = {
@@ -43,7 +42,7 @@
     // ==========================================
     const SUPABASE_URL = 'https://tzhmcojnjnjtdrhkpdph.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6aG1jb2puam5qdGRyaGtwZHBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1MTIzMTYsImV4cCI6MjA4NzA4ODMxNn0.VhcR5YpvUglBbwqvw9FtM9l-s3H1IVFJZFAFMyZPshU';
-    const ADMIN_PASSWORD = 'Pastore33!'; // Change this to your preferred password
+    const ADMIN_PASSWORD = 'Pastore33!';
 
     // --- DOM References ---
     const grid = document.getElementById('wishlistGrid');
@@ -56,11 +55,17 @@
     const toastUndo = document.getElementById('toastUndo');
     const tabs = document.querySelectorAll('.cat-tab');
     const fetchBtn = document.getElementById('fetchBtn');
-    const fetchSpinner = document.getElementById('fetchSpinner');
     const fetchPreview = document.getElementById('fetchPreview');
     const fetchPreviewImg = document.getElementById('fetchPreviewImg');
     const fetchPreviewTitle = document.getElementById('fetchPreviewTitle');
     const fetchPreviewDesc = document.getElementById('fetchPreviewDesc');
+
+    // Controls DOM
+    const headerSummary = document.getElementById('headerSummary');
+    const searchInput = document.getElementById('searchInput');
+    const priceFilter = document.getElementById('priceFilter');
+    const sortSelect = document.getElementById('sortSelect');
+    const shareBtn = document.getElementById('shareBtn');
 
     // Auth DOM
     const authBtn = document.getElementById('authBtn');
@@ -69,25 +74,35 @@
     const authForm = document.getElementById('authForm');
     const authPasswordInput = document.getElementById('authPassword');
     const authMessage = document.getElementById('authMessage');
-    const authSubmitBtn = document.getElementById('authSubmitBtn');
     const userDisplay = document.getElementById('userDisplay');
     const userEmailSpan = document.getElementById('userEmail');
     const logoutBtn = document.getElementById('logoutBtn');
+
+    // Claim Modal DOM
+    const claimModalOverlay = document.getElementById('claimModalOverlay');
+    const claimModalClose = document.getElementById('claimModalClose');
+    const claimForm = document.getElementById('claimForm');
+    const claimerNameInput = document.getElementById('claimerName');
+
+    // Form inputs
+    const formSubmitBtn = document.getElementById('formSubmitBtn');
+    const subcategoryGroup = document.getElementById('subcategoryGroup');
+    const subcategorySelect = document.getElementById('itemSubcategory');
+    const categorySelect = document.getElementById('itemCategory');
+    const priorityCheckbox = document.getElementById('itemPriority');
+    const receivedCheckbox = document.getElementById('itemReceived');
 
     // --- State ---
     let items = [];
     let activeCategory = 'all';
     let activeSort = 'newest';
+    let activePriceFilter = 'all';
+    let searchQuery = '';
     let lastDeleted = null;
     let toastTimeout = null;
     let currentUser = null;
     let editingItemId = null;
-
-    const sortSelect = document.getElementById('sortSelect');
-    const formSubmitBtn = document.getElementById('formSubmitBtn');
-    const subcategoryGroup = document.getElementById('subcategoryGroup');
-    const subcategorySelect = document.getElementById('itemSubcategory');
-    const categorySelect = document.getElementById('itemCategory');
+    let claimingItemId = null;
 
     // Show/hide subcategory when category changes
     categorySelect.addEventListener('change', () => {
@@ -111,8 +126,6 @@
             });
             if (!response.ok) throw new Error('Failed to load items from Supabase');
             const data = await response.json();
-            
-            // Map created_at to createdAt for app logic
             return data.map(item => ({
                 ...item,
                 createdAt: item.created_at
@@ -144,7 +157,6 @@
 
     async function removeItem(id) {
         try {
-            // Find for undo functionality before deleting
             const index = items.findIndex(i => i.id === id);
             if (index > -1) {
                 lastDeleted = { item: items[index], index };
@@ -186,16 +198,10 @@
         }
     }
 
-    function subscribeToChanges() {
-        // Not used
-    }
-
-    // --- Generate unique ID ---
     function uid() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
     }
 
-    // --- Extract display URL ---
     function displayUrl(url) {
         try {
             const u = new URL(url);
@@ -205,7 +211,6 @@
         }
     }
 
-    // --- Escape HTML ---
     function escapeHtml(str) {
         if (!str) return '';
         const div = document.createElement('div');
@@ -213,222 +218,33 @@
         return div.innerHTML;
     }
 
-    // --- Clean Title Helper ---
-    function cleanTitle(title, url) {
-        if (!title) return '';
-
-        // Strip common suffixes/prefixes like site names
-        let cleaned = title;
-
-        // 1. Remove separators and what follows them if they look like site names
-        const separators = [' | ', ' - ', ' – ', ' — ', ' : '];
-        for (const sep of separators) {
-            if (cleaned.includes(sep)) {
-                const parts = cleaned.split(sep);
-                const lastPart = parts[parts.length - 1].toLowerCase();
-                // Common generic site words
-                const genericWords = ['store', 'official', 'website', 'online', 'shop', 'amazon', 'etsy', 'ebay', 'asos', 'zara', 'h&m'];
-                
-                if (genericWords.some(word => lastPart.includes(word)) || 
-                    (url && url.toLowerCase().includes(lastPart.replace(/\s/g, '')))) {
-                    cleaned = parts.slice(0, -1).join(sep);
-                }
-            }
-        }
-
-        cleaned = cleaned.trim();
-
-        // 2. If it's a long hyphenated string (slug) or contains path segments
-        if (cleaned.includes('/') || (cleaned.includes('-') && !cleaned.includes(' '))) {
-            const segments = cleaned.split('/');
-            cleaned = segments[segments.length - 1] || segments[segments.length - 2] || cleaned;
-
-            cleaned = cleaned
-                .split('-')
-                .filter((part) => {
-                    return !/^\d+$/.test(part) && part.length > 1;
-                })
-                .join(' ');
-        }
-
-        // 3. Capitalize and cleanup
-        if (cleaned) {
-            cleaned = cleaned
-                .toLowerCase()
-                .split(' ')
-                .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(' ')
-                .trim();
-            
-            // Limit length
-            if (cleaned.length > 100) cleaned = cleaned.substring(0, 97) + '...';
-        }
-
-        return cleaned;
+    function parsePrice(priceStr) {
+        if (!priceStr) return Infinity;
+        const cleaned = priceStr.replace(/[^\d.]/g, '');
+        const val = parseFloat(cleaned);
+        return isNaN(val) ? Infinity : val;
     }
 
-    // ==========================================
-    //  SMART FETCH — Enhanced Scraper
-    // ==========================================
-
-    // Parse product name from URL slug (last resort fallback)
-    function parseNameFromUrl(url) {
-        try {
-            const u = new URL(url);
-            const pathParts = u.pathname.split('/').filter(Boolean);
-            // Find the most descriptive part (longest, non-numeric segment)
-            let best = '';
-            for (const part of pathParts) {
-                // Skip purely numeric parts (IDs)
-                if (/^\d+$/.test(part)) continue;
-                // Skip common path segments
-                if (['uk', 'us', 'listing', 'product', 'products', 'item', 'items', 'shop', 'dp', 'p', 'prd'].includes(part.toLowerCase())) continue;
-                if (part.length > best.length) best = part;
-            }
-            if (best) {
-                return best
-                    .replace(/[-_]+/g, ' ')
-                    .replace(/\b\w/g, c => c.toUpperCase())
-                    .trim();
-            }
-        } catch (e) { }
-        return '';
+    function getPlaceholderIcon(category) {
+        return '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#cccccc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
     }
 
-    // Domain-specific extraction (Creative Fallback)
-    function parseDomainSpecifics(url) {
-        const result = {
-            name: '',
-            image: '',
-            price: '',
-            source: 'URL Parser'
-        };
-
-        try {
-            const u = new URL(url);
-            const hostname = u.hostname.toLowerCase();
-            const path = u.pathname;
-
-            // --- AMAZON ---
-            if (hostname.includes('amazon.')) {
-                // Extract ASIN
-                const asinMatch = path.match(/(?:dp|gp\/product|exec\/obidos\/asin)\/(B[0-9A-Z]{9})/i);
-                if (asinMatch && asinMatch[1]) {
-                    const asin = asinMatch[1];
-                    // High-res image pattern
-                    result.image = `https://images-na.ssl-images-amazon.com/images/I/${asin}.jpg`;
-                }
-
-                // Extract name from slug (Amazon often has name before /dp/)
-                const parts = path.split('/');
-                const dpIndex = parts.findIndex(p => p === 'dp' || p === 'gp');
-                if (dpIndex > 0) {
-                    result.name = parts[dpIndex - 1].replace(/-/g, ' ');
-                } else {
-                    const nameParts = path.split('/').filter(p => p && !/^(dp|gp|product|ref|exec|obidos)$/.test(p) && !/B[0-9A-Z]{9}/i.test(p));
-                    if (nameParts.length > 0) result.name = nameParts[0].replace(/-/g, ' ');
-                }
-            }
-            // --- ETSY ---
-            else if (hostname.includes('etsy.com')) {
-                const listingMatch = path.match(/listing\/(\d+)/);
-                if (listingMatch && listingMatch[1]) {
-                    const listingId = listingMatch[1];
-                    const slugMatch = path.match(/listing\/\d+\/([^/?#]+)/);
-                    if (slugMatch) result.name = slugMatch[1].replace(/-/g, ' ');
-                }
-            }
-            // --- ASOS ---
-            else if (hostname.includes('asos.com')) {
-                const parts = path.split('/').filter(p => p && p.includes('-'));
-                if (parts.length > 0) {
-                    result.name = parts[0].replace(/-/g, ' ');
-                } else {
-                    result.name = parseNameFromUrl(url);
-                }
-            }
-
-            // Clean up name if found
-            if (result.name) {
-                result.name = result.name
-                    .split(' ')
-                    .map(w => w.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                    .join(' ')
-                    .trim();
-                // Limit length
-                if (result.name.length > 100) result.name = result.name.substring(0, 97) + '...';
-            }
-        } catch (e) { }
-
-        return result;
+    // --- Header Summary Calculation ---
+    function updateSummary() {
+        const activeItems = items.filter(item => !item.isReceived);
+        const count = activeItems.length;
+        let totalCost = 0;
+        activeItems.forEach(item => {
+            const p = parsePrice(item.price);
+            if (p !== Infinity) totalCost += p;
+        });
+        headerSummary.textContent = `${count} ${count === 1 ? 'item' : 'items'} • £${totalCost.toFixed(2)}`;
     }
 
-    // High-res Favicon Fallback
-    function getFaviconFallback(url) {
-        try {
-            const u = new URL(url);
-            return `https://www.google.com/s2/favicons?sz=256&domain=${u.hostname}`;
-        } catch (e) {
-            return '';
-        }
-    }
-
-    // Try fetching metadata from Microlink
-    async function fetchFromMicrolink(url) {
-        try {
-            const response = await fetch(
-                `${MICROLINK_API}?url=${encodeURIComponent(url)}&meta=true`
-            );
-
-            const json = await response.json();
-            if (json.status === 'success' && json.data) {
-                return json.data;
-            }
-        } catch (e) {
-            console.warn('Microlink fetch failed', e);
-        }
-        
-        // Fallback: Try a different proxy if Microlink fails
-        try {
-            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-            const response = await fetch(proxyUrl);
-            const json = await response.json();
-            if (json.contents) {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(json.contents, 'text/html');
-                
-                // Very basic extraction from meta tags
-                const getMeta = (query) => {
-                    const el = doc.querySelector(query);
-                    return el ? el.getAttribute('content') : null;
-                };
-
-                return {
-                    title: getMeta('meta[property="og:title"]') || doc.title,
-                    image: { url: getMeta('meta[property="og:image"]') || getMeta('meta[name="twitter:image"]') },
-                    description: getMeta('meta[property="og:description"]') || getMeta('name="description"'),
-                };
-            }
-        } catch (e) {
-            console.warn('AllOrigins fallback failed', e);
-        }
-        
-        return null;
-    }
-
-    document.getElementById('itemUrl').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            fetchBtn.click();
-        }
-    });
-
+    // --- Scraper Call ---
     fetchBtn.addEventListener('click', async () => {
         let url = document.getElementById('itemUrl').value.trim();
-        if (!url) {
-            document.getElementById('itemUrl').focus();
-            return;
-        }
+        if (!url) return;
 
         if (!/^https?:\/\//i.test(url)) {
             url = 'https://' + url;
@@ -444,124 +260,77 @@
         const priceInput = document.getElementById('itemPrice');
 
         try {
-            let data = await fetchFromMicrolink(url);
-            const domainData = parseDomainSpecifics(url);
-
-            const isJunk = data && (
-                data.title?.toLowerCase().includes('robot check') ||
-                data.title?.toLowerCase().includes('amazon.com') ||
-                data.title?.toLowerCase() === 'amazon' ||
-                data.title?.toLowerCase().includes('just a moment') ||
-                data.title?.toLowerCase().includes('access denied')
-            );
-
-            if (data && !isJunk) {
-                const cleanedTitle = cleanTitle(data.title, url);
-                nameInput.value = cleanedTitle || domainData.name || '';
-
-                let bestImage = '';
-                const normalizeUrl = (imgUrl) => {
-                    if (!imgUrl) return null;
-                    if (typeof imgUrl === 'object') imgUrl = imgUrl.url;
-                    try { return new URL(imgUrl, url).href; } catch { return imgUrl; }
-                };
-
-                const imageCandidates = [
-                    data.image,
-                    ...(Array.isArray(data.images) ? data.images : []),
-                    domainData.image,
-                    data.logo,
-                    getFaviconFallback(url)
-                ].map(normalizeUrl).filter(img => img && img.length > 10 && !img.includes('favicon.ico'));
-
-                bestImage = imageCandidates[0] || '';
-                imageInput.value = bestImage;
-
-                let detectedPrice = '';
-                if (data.price) {
-                    detectedPrice = typeof data.price === 'number' ? `£${data.price}` : data.price;
-                } else {
-                    const searchStr = [data.description, data.title, typeof data.text === 'string' ? data.text : ''].join(' ');
-                    const currencyRegex = /(?:£|€|\$|USD|GBP|EUR)\s?[\d,.]+(?:\.\d{2})?|[\d,.]+(?:\.\d{2})?\s?(?:£|€|\$|USD|GBP|EUR)/i;
-                    const priceMatch = searchStr.match(currencyRegex);
-                    if (priceMatch) detectedPrice = priceMatch[0];
+            const res = await fetch(`/api/scrape?url=${encodeURIComponent(url)}`);
+            if (res.ok) {
+                const data = await res.json();
+                nameInput.value = data.title || '';
+                imageInput.value = data.image || '';
+                priceInput.value = data.price || '';
+                if (data.category) {
+                    categorySelect.value = data.category;
+                    if (data.category === 'clothes') {
+                        subcategoryGroup.style.display = 'block';
+                        if (data.subcategory) subcategorySelect.value = data.subcategory;
+                    }
                 }
-                priceInput.value = detectedPrice;
 
-                if (bestImage) {
-                    fetchPreviewImg.src = bestImage;
+                if (data.image) {
+                    fetchPreviewImg.src = data.image;
                     fetchPreviewImg.style.display = 'block';
-                } else {
-                    fetchPreviewImg.style.display = 'none';
                 }
-                fetchPreviewTitle.textContent = nameInput.value || 'Product detected';
-                fetchPreviewDesc.textContent = detectedPrice ? `Price: ${detectedPrice}` : (data.description ? data.description.substring(0, 100) + '...' : 'Details fetched');
-
-            } else {
-                const parsedName = domainData.name || parseNameFromUrl(url);
-                nameInput.value = parsedName;
-
-                const fallbackImage = domainData.image || getFaviconFallback(url);
-                imageInput.value = fallbackImage;
-
-                fetchPreviewTitle.textContent = parsedName || 'Manual entry needed';
-                fetchPreviewImg.src = fallbackImage;
-                fetchPreviewImg.style.display = fallbackImage ? 'block' : 'none';
-
-                if (isJunk || !data) {
-                    fetchPreviewDesc.textContent = 'Site blocked auto-fetch. We used the link to guess details.';
-                } else {
-                    fetchPreviewDesc.textContent = 'Could not find all details. Please fill in any missing bits.';
-                }
+                fetchPreviewTitle.textContent = data.title || 'Product details fetched';
+                fetchPreviewDesc.textContent = data.price ? `Price: ${data.price}` : 'Details extracted';
+                fetchPreview.classList.add('show');
             }
-
-            fetchPreview.classList.add('show');
-
         } catch (err) {
             console.error('Fetch error:', err);
-            const parsedName = parseNameFromUrl(url);
-            nameInput.value = parsedName;
-            fetchPreviewTitle.textContent = parsedName || 'Fetch failed';
-            fetchPreviewDesc.textContent = 'Please check the link or fill in manually.';
-            fetchPreview.classList.add('show');
         } finally {
             fetchBtn.classList.remove('loading');
             fetchBtn.disabled = false;
         }
     });
 
-    // ==========================================
-    //  RENDER
-    // ==========================================
-
-    function parsePrice(priceStr) {
-        if (!priceStr) return Infinity;
-        const cleaned = priceStr.replace(/[^\d.]/g, '');
-        const val = parseFloat(cleaned);
-        return isNaN(val) ? Infinity : val;
-    }
-
-    function getPlaceholderIcon(category) {
-        const icons = {
-            clothes: '👕',
-            jewellery: '💎',
-            shoes: '👟',
-            bags: '👜',
-            cosmetics: '💄',
-            stationery: '✍️',
-            home: '🏠',
-            books: '📖',
-            misc: '✦'
-        };
-        return icons[category] || '✦';
-    }
-
+    // --- Render Logic ---
     function render() {
-        let filtered =
-            activeCategory === 'all'
-                ? [...items]
-                : items.filter((item) => item.category === activeCategory);
+        updateSummary();
 
+        let filtered = [...items];
+
+        // 1. Category Filter
+        if (activeCategory === 'priority') {
+            filtered = filtered.filter(item => item.isPriority);
+        } else if (activeCategory === 'received') {
+            filtered = filtered.filter(item => item.isReceived);
+        } else if (activeCategory !== 'all') {
+            filtered = filtered.filter(item => item.category === activeCategory && !item.isReceived);
+        } else {
+            // All tab: exclude received items
+            filtered = filtered.filter(item => !item.isReceived);
+        }
+
+        // 2. Search Query
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            filtered = filtered.filter(item =>
+                (item.name && item.name.toLowerCase().includes(q)) ||
+                (item.note && item.note.toLowerCase().includes(q)) ||
+                (item.url && item.url.toLowerCase().includes(q))
+            );
+        }
+
+        // 3. Price Filter
+        if (activePriceFilter !== 'all') {
+            filtered = filtered.filter(item => {
+                const p = parsePrice(item.price);
+                if (p === Infinity) return false;
+                if (activePriceFilter === 'under25') return p < 25;
+                if (activePriceFilter === '25to50') return p >= 25 && p <= 50;
+                if (activePriceFilter === 'over50') return p > 50;
+                return true;
+            });
+        }
+
+        // 4. Sorting
         switch (activeSort) {
             case 'newest':
                 filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -585,62 +354,13 @@
         if (filtered.length === 0) {
             emptyState.style.display = 'block';
             grid.style.display = 'none';
-            const emptyText = emptyState.querySelector('.empty-text');
-            if (activeCategory === 'all') {
-                emptyText.textContent = 'No items yet';
-            } else {
-                emptyText.textContent = `No ${CATEGORY_LABELS[activeCategory] || activeCategory} items`;
-            }
         } else {
             emptyState.style.display = 'none';
             grid.style.display = 'grid';
 
-            const shouldGroup = activeCategory === 'clothes';
-
-            if (shouldGroup) {
-                const groups = {};
-                const ungrouped = [];
-                filtered.forEach(item => {
-                    const sub = item.subcategory || '';
-                    if (sub) {
-                        if (!groups[sub]) groups[sub] = [];
-                        groups[sub].push(item);
-                    } else {
-                        ungrouped.push(item);
-                    }
-                });
-
-                const orderedKeys = Object.keys(SUBCATEGORY_LABELS).filter(k => groups[k]);
-                Object.keys(groups).forEach(k => { if (!orderedKeys.includes(k)) orderedKeys.push(k); });
-
-                let globalIndex = 0;
-                orderedKeys.forEach(key => {
-                    const header = document.createElement('div');
-                    header.className = 'subcategory-header';
-                    header.textContent = SUBCATEGORY_LABELS[key] || key;
-                    grid.appendChild(header);
-
-                    groups[key].forEach(item => {
-                        grid.appendChild(createCard(item, globalIndex++));
-                    });
-                });
-
-                if (ungrouped.length > 0) {
-                    if (orderedKeys.length > 0) {
-                        const header = document.createElement('div');
-                        header.className = 'subcategory-header';
-                        header.textContent = 'Uncategorised';
-                        grid.appendChild(header);
-                    }
-                    ungrouped.forEach(item => {
-                        grid.appendChild(createCard(item, globalIndex++));
-                    });
-                }
-            } else {
-                filtered.forEach((item, i) => {
-                    grid.appendChild(createCard(item, i));
-                });
-            }
+            filtered.forEach((item, i) => {
+                grid.appendChild(createCard(item, i));
+            });
         }
     }
 
@@ -649,22 +369,25 @@
         card.className = 'wish-card';
         card.style.animationDelay = `${i * 0.04}s`;
 
-        const priceHtml = item.price
-            ? `<div class="wish-card-price">${escapeHtml(item.price)}</div>`
-            : '';
-        const noteHtml = item.note
-            ? `<div class="wish-card-note">${escapeHtml(item.note)}</div>`
-            : '';
+        // Badges
+        let badgesHtml = '';
+        if (item.isPriority) badgesHtml += `<span class="badge badge-priority">Priority</span>`;
+        if (item.claimedBy) badgesHtml += `<span class="badge badge-reserved">Reserved (${escapeHtml(item.claimedBy)})</span>`;
+        if (item.isReceived) badgesHtml += `<span class="badge badge-received">Received</span>`;
+
+        const priceHtml = item.price ? `<div class="wish-card-price">${escapeHtml(item.price)}</div>` : '';
+        const noteHtml = item.note ? `<div class="wish-card-note">${escapeHtml(item.note)}</div>` : '';
         const imageHtml = item.image
             ? `<img class="wish-card-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" onerror="this.parentElement.classList.add('no-image'); this.remove();">`
             : '';
         const placeholderIcon = getPlaceholderIcon(item.category);
-        const subcatHtml = item.subcategory && SUBCATEGORY_LABELS[item.subcategory]
-            ? `<span class="wish-card-subcategory">${SUBCATEGORY_LABELS[item.subcategory]}</span>`
-            : '';
+
+        const reserveBtnText = item.claimedBy ? `Reserved by ${escapeHtml(item.claimedBy)}` : 'Reserve Gift';
+        const reserveBtnClass = item.claimedBy ? 'btn-reserve reserved' : 'btn-reserve';
 
         card.innerHTML = `
           <div class="wish-card-image-container">
+            <div class="card-badges">${badgesHtml}</div>
             ${imageHtml}
             <div class="wish-card-placeholder">${placeholderIcon}</div>
           </div>
@@ -672,7 +395,7 @@
             <div class="wish-card-content">
               <div class="wish-card-name">${escapeHtml(item.name)}</div>
               <span class="wish-card-category">${CATEGORY_LABELS[item.category] || item.category}</span>
-              ${subcatHtml}
+              ${item.subcategory ? `<span class="wish-card-subcategory">${SUBCATEGORY_LABELS[item.subcategory] || item.subcategory}</span>` : ''}
               ${priceHtml}
               ${noteHtml}
               <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="wish-card-url" onclick="event.stopPropagation()">
@@ -680,24 +403,36 @@
               </a>
             </div>
             <div class="wish-card-actions">
-              <button class="btn-edit" data-id="${item.id}" aria-label="Edit item">✎</button>
-              <button class="btn-delete" data-id="${item.id}" aria-label="Delete item">&times;</button>
+              <button class="${reserveBtnClass}" data-claim-id="${item.id}">${reserveBtnText}</button>
+              <button class="btn-edit" data-id="${item.id}">✎</button>
+              <button class="btn-delete" data-id="${item.id}">&times;</button>
             </div>
           </div>
         `;
 
         card.addEventListener('click', (e) => {
-            if (
-                e.target.closest('.btn-delete') ||
-                e.target.closest('.btn-edit') ||
-                e.target.closest('.wish-card-url')
-            )
-                return;
+            if (e.target.closest('.btn-delete') || e.target.closest('.btn-edit') || e.target.closest('.btn-reserve') || e.target.closest('.wish-card-url')) return;
             window.open(item.url, '_blank', 'noopener,noreferrer');
         });
 
         return card;
     }
+
+    // --- Search & Filters Handlers ---
+    searchInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value.trim();
+        render();
+    });
+
+    priceFilter.addEventListener('change', () => {
+        activePriceFilter = priceFilter.value;
+        render();
+    });
+
+    sortSelect.addEventListener('change', () => {
+        activeSort = sortSelect.value;
+        render();
+    });
 
     tabs.forEach((tab) => {
         tab.addEventListener('click', () => {
@@ -708,28 +443,71 @@
         });
     });
 
-    sortSelect.addEventListener('change', () => {
-        activeSort = sortSelect.value;
+    // --- Share Button ---
+    shareBtn.addEventListener('click', () => {
+        if (navigator.share) {
+            navigator.share({
+                title: "Liv's Wishlist",
+                url: window.location.href
+            }).catch(() => {});
+        } else {
+            navigator.clipboard.writeText(window.location.href);
+            showToast('Wishlist link copied to clipboard!', false);
+        }
+    });
+
+    // --- Reserve / Claim Flow ---
+    grid.addEventListener('click', (e) => {
+        const claimBtn = e.target.closest('.btn-reserve');
+        if (!claimBtn) return;
+        e.stopPropagation();
+
+        const id = claimBtn.dataset.claimId;
+        const item = items.find(i => i.id === id);
+        if (!item) return;
+
+        if (item.claimedBy) {
+            // Already claimed -> option to unclaim
+            if (confirm(`Unclaim gift reserved by ${item.claimedBy}?`)) {
+                updateItem(id, { claimedBy: null }).then(async () => {
+                    items = await loadItems();
+                    render();
+                });
+            }
+        } else {
+            claimingItemId = id;
+            claimModalOverlay.classList.add('open');
+            setTimeout(() => claimerNameInput.focus(), 300);
+        }
+    });
+
+    claimModalClose.addEventListener('click', () => claimModalOverlay.classList.remove('open'));
+    claimForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = claimerNameInput.value.trim();
+        if (!name || !claimingItemId) return;
+
+        await updateItem(claimingItemId, { claimedBy: name });
+        claimingItemId = null;
+        claimerNameInput.value = '';
+        claimModalOverlay.classList.remove('open');
+        items = await loadItems();
         render();
     });
 
+    // --- Add/Edit Modal Handlers ---
     function openModal() {
         modalOverlay.classList.add('open');
         addBtn.classList.add('open');
-        document.body.style.overflow = 'hidden';
-        setTimeout(() => {
-            document.getElementById('itemUrl').focus();
-        }, 350);
+        setTimeout(() => document.getElementById('itemUrl').focus(), 300);
     }
 
     function closeModal() {
         modalOverlay.classList.remove('open');
         addBtn.classList.remove('open');
-        document.body.style.overflow = '';
         itemForm.reset();
         fetchPreview.classList.remove('show');
         subcategoryGroup.style.display = 'none';
-        subcategorySelect.value = '';
         if (editingItemId) {
             editingItemId = null;
             formSubmitBtn.textContent = 'Add Item';
@@ -737,91 +515,11 @@
         }
     }
 
-    addBtn.addEventListener('click', () => {
-        if (modalOverlay.classList.contains('open')) {
-            closeModal();
-        } else {
-            openModal();
-        }
-    });
-
+    addBtn.addEventListener('click', openModal);
     modalClose.addEventListener('click', closeModal);
-
-    modalOverlay.addEventListener('click', (e) => {
-        if (e.target === modalOverlay) closeModal();
-    });
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            if (modalOverlay.classList.contains('open')) closeModal();
-            if (authModalOverlay.classList.contains('open')) closeAuthModal();
-        }
-    });
-
-    function openAuthModal() {
-        authModalOverlay.classList.add('open');
-        document.body.style.overflow = 'hidden';
-        setTimeout(() => authPasswordInput.focus(), 350);
-    }
-
-    function closeAuthModal() {
-        authModalOverlay.classList.remove('open');
-        document.body.style.overflow = '';
-        authForm.reset();
-        authMessage.style.display = 'none';
-        authMessage.className = 'auth-message';
-    }
-
-    authBtn.addEventListener('click', openAuthModal);
-    authModalClose.addEventListener('click', closeAuthModal);
-
-    authModalOverlay.addEventListener('click', (e) => {
-        if (e.target === authModalOverlay) closeAuthModal();
-    });
-
-    authForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const password = authPasswordInput.value.trim();
-
-        if (password === ADMIN_PASSWORD) {
-            currentUser = { email: 'Admin (Hardcoded)', id: 'admin' };
-            localStorage.setItem('wishlist_admin_session', 'true');
-            updateAuthUI();
-            authMessage.textContent = 'Welcome back, Liv!';
-            authMessage.className = 'auth-message success';
-            authMessage.style.display = 'block';
-            setTimeout(closeAuthModal, 1500);
-        } else {
-            authMessage.textContent = 'Incorrect password.';
-            authMessage.className = 'auth-message error';
-            authMessage.style.display = 'block';
-        }
-    });
-
-    logoutBtn.addEventListener('click', async () => {
-        localStorage.removeItem('wishlist_admin_session');
-        currentUser = null;
-        updateAuthUI();
-    });
-
-    function updateAuthUI() {
-        if (currentUser) {
-            document.body.classList.add('is-authenticated');
-            authBtn.style.display = 'none';
-            userDisplay.style.display = 'flex';
-            userEmailSpan.textContent = currentUser.email;
-        } else {
-            document.body.classList.remove('is-authenticated');
-            authBtn.style.display = 'block';
-            userDisplay.style.display = 'none';
-            userEmailSpan.textContent = '';
-        }
-        render();
-    }
 
     itemForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-
         const name = document.getElementById('itemName').value.trim();
         const url = document.getElementById('itemUrl').value.trim();
         const note = document.getElementById('itemNote').value.trim();
@@ -829,14 +527,14 @@
         const price = document.getElementById('itemPrice').value.trim();
         const image = document.getElementById('itemImage').value.trim();
         const subcategory = category === 'clothes' ? subcategorySelect.value : '';
+        const isPriority = priorityCheckbox.checked;
+        const isReceived = receivedCheckbox.checked;
 
         if (!name || !url) return;
 
         if (editingItemId) {
-            await updateItem(editingItemId, { name, url, note, category, price, image, subcategory });
+            await updateItem(editingItemId, { name, url, note, category, price, image, subcategory, isPriority, isReceived });
             editingItemId = null;
-            formSubmitBtn.textContent = 'Add Item';
-            document.querySelector('.modal-title').textContent = 'Add to Wishlist';
         } else {
             const newItem = {
                 id: uid(),
@@ -847,11 +545,13 @@
                 price,
                 image,
                 subcategory,
+                isPriority,
+                isReceived,
                 createdAt: Date.now(),
             };
             await saveItem(newItem);
         }
-        
+
         items = await loadItems();
         render();
         closeModal();
@@ -860,8 +560,8 @@
     grid.addEventListener('click', (e) => {
         const editBtn = e.target.closest('.btn-edit');
         if (!editBtn) return;
-
         e.stopPropagation();
+
         const id = editBtn.dataset.id;
         const item = items.find(i => i.id === id);
         if (!item) return;
@@ -873,13 +573,14 @@
         document.getElementById('itemNote').value = item.note || '';
         document.getElementById('itemCategory').value = item.category || 'misc';
         document.getElementById('itemPrice').value = item.price || '';
+        priorityCheckbox.checked = !!item.isPriority;
+        receivedCheckbox.checked = !!item.isReceived;
+
         if (item.category === 'clothes') {
             subcategoryGroup.style.display = 'block';
             subcategorySelect.value = item.subcategory || '';
-        } else {
-            subcategoryGroup.style.display = 'none';
-            subcategorySelect.value = '';
         }
+
         formSubmitBtn.textContent = 'Update Item';
         document.querySelector('.modal-title').textContent = 'Edit Item';
         openModal();
@@ -888,36 +589,58 @@
     grid.addEventListener('click', async (e) => {
         const deleteBtn = e.target.closest('.btn-delete');
         if (!deleteBtn) return;
-
         e.stopPropagation();
-        const id = deleteBtn.dataset.id;
 
+        const id = deleteBtn.dataset.id;
         await removeItem(id);
         items = await loadItems();
         render();
     });
 
-    function showToast(message = 'Item removed', showUndo = true) {
+    function showToast(message, showUndo = true) {
         clearTimeout(toastTimeout);
         toast.querySelector('.toast-text').textContent = message;
         toastUndo.style.display = showUndo ? 'inline-block' : 'none';
         toast.classList.add('show');
-        toastTimeout = setTimeout(() => {
-            toast.classList.remove('show');
-            lastDeleted = null;
-        }, 4000);
+        toastTimeout = setTimeout(() => toast.classList.remove('show'), 4000);
     }
 
     toastUndo.addEventListener('click', async () => {
         if (!lastDeleted) return;
-
         await saveItem(lastDeleted.item);
         items = await loadItems();
         render();
-
         lastDeleted = null;
         toast.classList.remove('show');
-        clearTimeout(toastTimeout);
+    });
+
+    // --- Auth Handlers ---
+    authBtn.addEventListener('click', () => authModalOverlay.classList.add('open'));
+    authModalClose.addEventListener('click', () => authModalOverlay.classList.remove('open'));
+    authForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (authPasswordInput.value.trim() === ADMIN_PASSWORD) {
+            currentUser = { email: 'Admin', id: 'admin' };
+            localStorage.setItem('wishlist_admin_session', 'true');
+            document.body.classList.add('is-authenticated');
+            authBtn.style.display = 'none';
+            userDisplay.style.display = 'flex';
+            userEmailSpan.textContent = 'Admin Mode';
+            authModalOverlay.classList.remove('open');
+            render();
+        } else {
+            authMessage.textContent = 'Incorrect password.';
+            authMessage.style.display = 'block';
+        }
+    });
+
+    logoutBtn.addEventListener('click', () => {
+        localStorage.removeItem('wishlist_admin_session');
+        currentUser = null;
+        document.body.classList.remove('is-authenticated');
+        authBtn.style.display = 'block';
+        userDisplay.style.display = 'none';
+        render();
     });
 
     async function init() {
@@ -925,8 +648,11 @@
         render();
 
         if (localStorage.getItem('wishlist_admin_session') === 'true') {
-            currentUser = { email: 'Admin (Hardcoded)', id: 'admin' };
-            updateAuthUI();
+            currentUser = { email: 'Admin', id: 'admin' };
+            document.body.classList.add('is-authenticated');
+            authBtn.style.display = 'none';
+            userDisplay.style.display = 'flex';
+            userEmailSpan.textContent = 'Admin Mode';
         }
     }
 
