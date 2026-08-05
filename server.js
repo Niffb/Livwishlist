@@ -16,6 +16,12 @@ function cleanTitle(title, urlStr) {
   if (!title) return '';
   let cleaned = title.trim();
 
+  // Strip URL query parameters if present in title
+  if (cleaned.includes('?')) cleaned = cleaned.split('?')[0];
+  if (cleaned.includes('&') && (cleaned.includes('=') || cleaned.includes('utm_') || cleaned.includes('tw_'))) {
+    cleaned = cleaned.split('&')[0];
+  }
+
   // Strip generic site titles / suffixes after common separators
   const separators = [' | ', ' - ', ' – ', ' — ', ' : '];
   for (const sep of separators) {
@@ -30,7 +36,8 @@ function cleanTitle(title, urlStr) {
     }
   }
 
-  // Remove trademark symbols and junk SKU numbers
+  cleaned = cleaned.replace(/:\s*Amazon\.co\.uk:.*$/i, '');
+  cleaned = cleaned.replace(/\.(html|php|asp|aspx)$/i, '');
   cleaned = cleaned.replace(/[™®©]/g, '');
   cleaned = cleaned.replace(/\bSKU[:\s]*\w+/gi, '');
 
