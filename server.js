@@ -117,67 +117,205 @@ app.get('/api/scrape', async (req, res) => {
     const urlObj = new URL(targetUrl);
     const hostname = urlObj.hostname.toLowerCase();
 
-    // 1. Try fetching via Microlink API
-    let meta = null;
-    try {
-      const mlRes = await fetch(`https://api.microlink.io?url=${encodeURIComponent(targetUrl)}&meta=true`);
-      if (mlRes.ok) {
-        const mlData = await mlRes.json();
-        if (mlData.status === 'success' && mlData.data) {
-          meta = mlData.data;
+    let title = '';
+    let image = '';
+    let price = '';
+    let description = '';
+
+    // 1. Shopify API Check (fast & reliable for many e-commerce stores)
+    if (targetUrl.includes('/products/')) {
+      try {
+        const cleanUrl = targetUrl.split('?')[0].replace(/\/$/, '');
+        const jsonRes = await fetch(cleanUrl + '.json', {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' }
+        });
+        if (jsonRes.ok) {
+          const data = await jsonRes.json();
+          if (data.product) {
+            title = data.product.title || '';
+            if (data.product.images && data.product.images.length > 0) {
+              const src = data.product.images[0].src;
+              image = src.startsWith('//') ? 'https:' + src : src;
+            }
+            if (data.product.variants && data.product.variants.length > 0) {
+              const p = data.product.variants[0].price;
+              if (p) price = `£${p}`;
+            }
+            if (data.product.body_html) {
+              description = data.product.body_html.replace(/<[^>]+>/g, ' ').substring(0, 200).trim();
+            }
+          }
         }
+      } catch (e) {
+        console.warn('Shopify API fetch failed:', e.message);
       }
-    } catch (e) {
-      console.warn('Microlink error:', e.message);
     }
 
-    // 2. Domain Specific Parsers
-    let title = meta?.title || '';
-    let image = meta?.image?.url || (Array.isArray(meta?.images) ? meta.images[0]?.url : '');
-    let price = meta?.price ? (typeof meta.price === 'number' ? `£${meta.price}` : meta.price) : '';
-    let description = meta?.description || '';
-
-    // Amazon domain parser
+    // 2. Amazon ASIN Check
     if (hostname.includes('amazon.')) {
       const asinMatch = targetUrl.match(/(?:dp|gp\/product|exec\/obidos\/asin)\/(B[0-9A-Z]{9})/i);
       if (asinMatch && asinMatch[1]) {
         const asin = asinMatch[1];
-        if (!image || image.includes('favicon') || image.includes('logo')) {
-          image = `https://images-na.ssl-images-amazon.com/images/I/${asin}.jpg`;
+        if (!image || image.includes('logo') || image.includes('favicon')) {
+          image = `https://images-na.ssl-images-amazon.com/images/P/${asin}.01.LZZZZZZZ.jpg`;
         }
       }
     }
 
-    // Fallback image search using DuckDuckGo / Bing if missing or poor quality
-    if (!image || image.includes('favicon.ico') || image.includes('logo')) {
+    // 3. Direct HTML Scraping (OpenGraph, Twitter Cards, Meta, JSON-LD Schema)
+    if (!title || !image || !price) {
       try {
-        const queryName = title || urlObj.pathname.split('/').pop().replace(/[-_]/g, ' ');
-        const ddgRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(queryName + ' product')}`, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }
+        const htmlRes = await fetch(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'no-cache'
+          }
         });
-        if (ddgRes.ok) {
-          const html = await ddgRes.text();
-          const imgMatch = html.match(/class="small"[^>]*src="([^"]+)"/i) || html.match(/<img[^>]+src="([^"]+)"/i);
-          if (imgMatch && imgMatch[1]) {
-            let imgUrl = imgMatch[1];
-            if (imgUrl.startsWith('//')) imgUrl = 'https:' + imgUrl;
-            if (!image) image = imgUrl;
+
+        if (htmlRes.ok) {
+          const html = await htmlRes.text();
+
+          // OpenGraph / Twitter Title
+          if (!title) {
+            const ogTitle = html.match(/<meta[^>]+(?:property|name)=["'](?:og:title|twitter:title)["'][^>]+content=["']([^"']+)["']/i) ||
+                            html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:title|twitter:title)["']/i);
+            const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+            const h1Tag = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+
+            title = ogTitle ? ogTitle[1] : (titleTag ? titleTag[1] : (h1Tag ? h1Tag[1].replace(/<[^>]+>/g, '').trim() : ''));
+          }
+
+          // OpenGraph / Twitter Image
+          if (!image || image.includes('favicon') || image.includes('logo')) {
+            const ogImg = html.match(/<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image|og:image:secure_url)["'][^>]+content=["']([^"']+)["']/i) ||
+                          html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|twitter:image|og:image:secure_url)["']/i);
+            if (ogImg && ogImg[1]) {
+              let imgUrl = ogImg[1].replace(/&amp;/g, '&');
+              if (imgUrl.startsWith('//')) imgUrl = 'https:' + imgUrl;
+              if (imgUrl.startsWith('/')) imgUrl = `${urlObj.origin}${imgUrl}`;
+              image = imgUrl;
+            }
+          }
+
+          // OpenGraph / Meta Description
+          if (!description) {
+            const ogDesc = html.match(/<meta[^>]+(?:property|name)=["'](?:og:description|twitter:description|description)["'][^>]+content=["']([^"']+)["']/i) ||
+                           html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:description|twitter:description|description)["']/i);
+            if (ogDesc && ogDesc[1]) description = ogDesc[1];
+          }
+
+          // OpenGraph / Meta Price
+          if (!price) {
+            const ogPrice = html.match(/<meta[^>]+(?:property|name)=["'](?:og:price:amount|product:price:amount|twitter:label1)["'][^>]+content=["']([^"']+)["']/i) ||
+                            html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:price:amount|product:price:amount|twitter:label1)["']/i);
+            if (ogPrice && ogPrice[1]) {
+              const rawP = ogPrice[1];
+              price = rawP.startsWith('£') || rawP.startsWith('$') || rawP.startsWith('€') ? rawP : `£${rawP}`;
+            }
+          }
+
+          // JSON-LD Product Microdata
+          const jsonLdMatches = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+          if (jsonLdMatches) {
+            for (const block of jsonLdMatches) {
+              try {
+                const content = block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '').trim();
+                const json = JSON.parse(content);
+                const items = Array.isArray(json) ? json : [json];
+                for (const item of items) {
+                  const target = item['@graph'] ? item['@graph'] : [item];
+                  for (const sub of (Array.isArray(target) ? target : [target])) {
+                    if (sub['@type'] === 'Product' || sub['@type'] === 'http://schema.org/Product') {
+                      if (!title && sub.name) title = sub.name;
+                      if (!image && sub.image) {
+                        const imgVal = Array.isArray(sub.image) ? sub.image[0] : (typeof sub.image === 'object' ? sub.image.url : sub.image);
+                        if (imgVal) image = imgVal;
+                      }
+                      if (!price && sub.offers) {
+                        const offer = Array.isArray(sub.offers) ? sub.offers[0] : sub.offers;
+                        if (offer && (offer.price || offer.lowPrice)) price = `£${offer.price || offer.lowPrice}`;
+                      }
+                      if (!description && sub.description) description = sub.description;
+                    }
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Direct HTML scrape failed:', e.message);
+      }
+    }
+
+    // 4. Microlink API Fallback
+    if (!title || !image) {
+      try {
+        const mlRes = await fetch(`https://api.microlink.io?url=${encodeURIComponent(targetUrl)}&meta=true`);
+        if (mlRes.ok) {
+          const mlData = await mlRes.json();
+          if (mlData.status === 'success' && mlData.data) {
+            if (!title) title = mlData.data.title || '';
+            if (!image) image = mlData.data.image?.url || (Array.isArray(mlData.data.images) ? mlData.data.images[0]?.url : '');
+            if (!price && mlData.data.price) price = typeof mlData.data.price === 'number' ? `£${mlData.data.price}` : mlData.data.price;
+            if (!description && mlData.data.description) description = mlData.data.description;
+          }
+        }
+      } catch (e) {
+        console.warn('Microlink error:', e.message);
+      }
+    }
+
+    // 5. Slug Title Fallback if title is empty, brand-only, or generic
+    const brandName = hostname.replace('www.', '').split('.')[0];
+    const isGenericTitle = !title ||
+      title.toLowerCase().trim() === hostname.replace('www.', '') ||
+      title.toLowerCase().trim() === brandName ||
+      ['page not found', 'access denied', 'attention required', '404', 'security check', 'just a moment', 'not found', 'error'].includes(title.toLowerCase().trim());
+
+    if (isGenericTitle) {
+      try {
+        const pathParts = urlObj.pathname.split('/').filter(p => p && !['dp', 'gp', 'product', 'products', 'item', 'items', 'p', 'pd', 'prd'].includes(p.toLowerCase()));
+        if (pathParts.length > 0) {
+          let slug = pathParts[pathParts.length - 1];
+          slug = slug.replace(/[-_]/g, ' ').replace(/\.(html|php|asp|aspx)$/i, '');
+          if (slug.length > 2 && !/^[A-Z0-9]{10}$/i.test(slug)) {
+            title = slug.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
           }
         }
       } catch (e) {}
     }
 
-    // Fallback favicon image
+    const cleanedName = cleanTitle(title, targetUrl) || urlObj.hostname.replace('www.', '');
+
+    // 6. Bing Image Fallback (if image is missing, favicon, or logo)
+    if (cleanedName && (!image || image.includes('favicon') || image.includes('logo') || image.includes('s2/favicons'))) {
+      try {
+        const bingRes = await fetch(`https://www.bing.com/images/search?q=${encodeURIComponent(cleanedName + ' product photo')}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }
+        });
+        if (bingRes.ok) {
+          const html = await bingRes.text();
+          const m = html.match(/murl&quot;:&quot;(https?:&#2f;&#2f;[^&]+)&quot;/i);
+          if (m && m[1]) {
+            image = m[1].replace(/&#2f;/g, '/');
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 7. Favicon Fallback if Bing search fails
     if (!image) {
       image = `https://www.google.com/s2/favicons?sz=256&domain=${hostname}`;
     }
 
-    // Price extraction fallback
+    // Price extraction fallback from text
     if (!price) {
       price = parsePriceFromText(description + ' ' + title);
     }
 
-    const cleanedName = cleanTitle(title, targetUrl) || urlObj.hostname.replace('www.', '');
     const { category, subcategory } = autoDetectCategory(cleanedName, targetUrl, description);
 
     return res.json({

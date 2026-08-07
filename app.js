@@ -259,35 +259,117 @@
         const imageInput = document.getElementById('itemImage');
         const priceInput = document.getElementById('itemPrice');
 
+        let data = null;
+
+        // 1. Try Backend /api/scrape
         try {
             const res = await fetch(`/api/scrape?url=${encodeURIComponent(url)}`);
             if (res.ok) {
-                const data = await res.json();
-                nameInput.value = data.title || '';
-                imageInput.value = data.image || '';
-                priceInput.value = data.price || '';
-                if (data.category) {
-                    categorySelect.value = data.category;
-                    if (data.category === 'clothes') {
-                        subcategoryGroup.style.display = 'block';
-                        if (data.subcategory) subcategorySelect.value = data.subcategory;
+                data = await res.json();
+            }
+        } catch (err) {
+            console.warn('Backend /api/scrape unavailable or failed, attempting client-side fallback:', err);
+        }
+
+        // 2. Client-side Fallback Scraper (for static hosts or backend offline)
+        if (!data || (!data.title && !data.image)) {
+            try {
+                const urlObj = new URL(url);
+                const hostname = urlObj.hostname.toLowerCase().replace('www.', '');
+                let title = '';
+                let image = '';
+                let price = '';
+
+                // Shopify API check
+                if (url.includes('/products/')) {
+                    try {
+                        const cleanUrl = url.split('?')[0].replace(/\/$/, '');
+                        const jsonRes = await fetch(cleanUrl + '.json');
+                        if (jsonRes.ok) {
+                            const shopifyData = await jsonRes.json();
+                            if (shopifyData.product) {
+                                title = shopifyData.product.title || '';
+                                if (shopifyData.product.images && shopifyData.product.images.length > 0) {
+                                    const src = shopifyData.product.images[0].src;
+                                    image = src.startsWith('//') ? 'https:' + src : src;
+                                }
+                                if (shopifyData.product.variants && shopifyData.product.variants.length > 0) {
+                                    const p = shopifyData.product.variants[0].price;
+                                    if (p) price = `£${p}`;
+                                }
+                            }
+                        }
+                    } catch (e) {}
+                }
+
+                // Amazon ASIN check
+                if (hostname.includes('amazon.')) {
+                    const asinMatch = url.match(/(?:dp|gp\/product|exec\/obidos\/asin)\/(B[0-9A-Z]{9})/i);
+                    if (asinMatch && asinMatch[1]) {
+                        image = `https://images-na.ssl-images-amazon.com/images/P/${asinMatch[1]}.01.LZZZZZZZ.jpg`;
                     }
                 }
 
-                if (data.image) {
-                    fetchPreviewImg.src = data.image;
-                    fetchPreviewImg.style.display = 'block';
+                // Fallback title from URL path
+                if (!title) {
+                    const pathParts = urlObj.pathname.split('/').filter(Boolean);
+                    if (pathParts.length > 0) {
+                        const rawSlug = pathParts[pathParts.length - 1];
+                        title = rawSlug.replace(/[-_]/g, ' ').replace(/\.(html|php|asp|aspx)$/i, '');
+                        title = title.charAt(0).toUpperCase() + title.slice(1);
+                    }
                 }
-                fetchPreviewTitle.textContent = data.title || 'Product details fetched';
-                fetchPreviewDesc.textContent = data.price ? `Price: ${data.price}` : 'Details extracted';
-                fetchPreview.classList.add('show');
+
+                // Fallback favicon
+                if (!image) {
+                    image = `https://www.google.com/s2/favicons?sz=256&domain=${hostname}`;
+                }
+
+                data = {
+                    title: title || hostname,
+                    image: image,
+                    price: price,
+                    category: 'misc',
+                    subcategory: '',
+                    domain: hostname
+                };
+            } catch (e) {
+                console.error('Client fallback error:', e);
             }
-        } catch (err) {
-            console.error('Fetch error:', err);
-        } finally {
-            fetchBtn.classList.remove('loading');
-            fetchBtn.disabled = false;
         }
+
+        if (data) {
+            if (data.title) nameInput.value = data.title;
+            if (data.image) imageInput.value = data.image;
+            if (data.price) priceInput.value = data.price;
+
+            if (data.category) {
+                categorySelect.value = data.category;
+                if (data.category === 'clothes') {
+                    subcategoryGroup.style.display = 'block';
+                    if (data.subcategory) subcategorySelect.value = data.subcategory;
+                }
+            }
+
+            if (data.image) {
+                fetchPreviewImg.src = data.image;
+                fetchPreviewImg.style.display = 'block';
+            }
+            fetchPreviewTitle.textContent = data.title || 'Product details extracted';
+            fetchPreviewDesc.textContent = data.price ? `Price: ${data.price}` : 'Auto-filled standard fields';
+            fetchPreview.classList.add('show');
+
+            if (!data.price && !data.title) {
+                showToast('Limited info extracted. Please complete details.', false);
+            } else {
+                showToast('Product details fetched!', false);
+            }
+        } else {
+            showToast('Could not fetch URL. Please enter details manually.', false);
+        }
+
+        fetchBtn.classList.remove('loading');
+        fetchBtn.disabled = false;
     });
 
     // --- Render Logic ---
