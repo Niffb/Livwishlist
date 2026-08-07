@@ -263,13 +263,15 @@
     }
 
     // --- Scraper Call ---
-    fetchBtn.addEventListener('click', async () => {
-        let url = document.getElementById('itemUrl').value.trim();
+    const itemUrlInput = document.getElementById('itemUrl');
+
+    async function executeFetch() {
+        let url = itemUrlInput.value.trim();
         if (!url) return;
 
         if (!/^https?:\/\//i.test(url)) {
             url = 'https://' + url;
-            document.getElementById('itemUrl').value = url;
+            itemUrlInput.value = url;
         }
 
         fetchBtn.classList.add('loading');
@@ -391,6 +393,29 @@
 
         fetchBtn.classList.remove('loading');
         fetchBtn.disabled = false;
+    }
+
+    // Trigger Fetch on Button Click
+    fetchBtn.addEventListener('click', executeFetch);
+
+    // Trigger Fetch automatically when pasting a URL
+    itemUrlInput.addEventListener('paste', () => {
+        setTimeout(executeFetch, 100);
+    });
+
+    // Trigger Fetch on Enter key inside URL field (and prevent premature form submit)
+    itemUrlInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            executeFetch();
+        }
+    });
+
+    // Trigger Fetch on change/blur if URL is entered and not fetched yet
+    itemUrlInput.addEventListener('change', () => {
+        if (itemUrlInput.value.trim() && !fetchPreview.classList.contains('show')) {
+            executeFetch();
+        }
     });
 
     // --- Render Logic ---
