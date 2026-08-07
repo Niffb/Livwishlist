@@ -119,6 +119,18 @@
         };
     }
 
+    // --- Helper to filter payload to valid database columns ---
+    function sanitizeDbItem(obj) {
+        const allowed = ['id', 'name', 'url', 'note', 'category', 'price', 'image', 'created_at', 'subcategory'];
+        const clean = {};
+        for (const key of allowed) {
+            if (obj[key] !== undefined) {
+                clean[key] = obj[key];
+            }
+        }
+        return clean;
+    }
+
     async function loadItems() {
         try {
             const response = await fetch(`${SUPABASE_URL}/rest/v1/wishlist?select=*&order=created_at.desc`, {
@@ -128,7 +140,9 @@
             const data = await response.json();
             return data.map(item => ({
                 ...item,
-                createdAt: item.created_at
+                createdAt: item.created_at,
+                isPriority: item.category === 'priority' || !!item.isPriority,
+                isReceived: item.category === 'received' || !!item.isReceived
             }));
         } catch (error) {
             console.error('Error loading items from Supabase:', error);
@@ -137,8 +151,10 @@
     }
 
     async function saveItem(item) {
-        const dbItem = { ...item, created_at: item.createdAt || Date.now() };
-        delete dbItem.createdAt;
+        const dbItem = sanitizeDbItem({
+            ...item,
+            created_at: item.createdAt || Date.now()
+        });
 
         try {
             const response = await fetch(`${SUPABASE_URL}/rest/v1/wishlist`, {
@@ -146,7 +162,10 @@
                 headers: getHeaders(),
                 body: JSON.stringify(dbItem)
             });
-            if (!response.ok) throw new Error('Failed to save item to Supabase');
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Failed to save item to Supabase (${response.status}): ${errText}`);
+            }
             showToast('Item saved', false);
         } catch (error) {
             console.error('Error saving item to Supabase:', error);
@@ -177,11 +196,10 @@
     }
 
     async function updateItem(id, updates) {
-        const dbUpdates = { ...updates };
-        if (dbUpdates.createdAt) {
-            dbUpdates.created_at = dbUpdates.createdAt;
-            delete dbUpdates.createdAt;
-        }
+        const dbUpdates = sanitizeDbItem({
+            ...updates,
+            ...(updates.createdAt ? { created_at: updates.createdAt } : {})
+        });
 
         try {
             const response = await fetch(`${SUPABASE_URL}/rest/v1/wishlist?id=eq.${id}`, {
@@ -189,7 +207,10 @@
                 headers: getHeaders(),
                 body: JSON.stringify(dbUpdates)
             });
-            if (!response.ok) throw new Error('Failed to update item on Supabase');
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Failed to update item on Supabase (${response.status}): ${errText}`);
+            }
             showToast('Item updated', false);
         } catch (error) {
             console.error('Error updating item on Supabase:', error);
